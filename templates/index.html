@@ -1,0 +1,4207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIgambit.com - Play Chess Online</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #312e2b;
+            --bg-darker: #272522;
+            --bg-darkest: #1a1816;
+            --bg-panel: #262421;
+            --green-primary: #81b64c;
+            --green-dark: #5d8c3a;
+            --text-primary: #ffffff;
+            --text-secondary: #b0ada8;
+            --board-light: #ebecd0;
+            --board-dark: #739552;
+            --highlight: #f7f769;
+            --selected: #baca44;
+        }
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: var(--bg-darkest);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-darker);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #3d3a36;
+            position: relative;
+            z-index: 100;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            font-size: 24px;
+            font-weight: 700;
+            color: white;
+        }
+        .logo-icon { font-size: 28px; }
+        .logo-accent { color: var(--green-primary); }
+        .nav-links {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .nav-links a:hover, .nav-links a.active {
+            color: white;
+            background: var(--bg-dark);
+        }
+        a{
+            text-decoration: none;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .user-rating {
+            background: var(--bg-dark);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        .settings-btn {
+            background: var(--bg-dark);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.2s;
+        }
+        .settings-btn:hover { background: var(--bg-panel); }
+
+        /* Dropdown Menu */
+        .dropdown {
+            position: relative;
+        }
+        .dropdown-btn {
+            background: var(--green-primary);
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+        .dropdown-btn:hover { background: var(--green-dark); }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: var(--bg-panel);
+            min-width: 220px;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            z-index: 1000;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .dropdown:hover .dropdown-content { display: block; }
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            color: var(--text-primary);
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            background: none;
+            width: 100%;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .dropdown-item:hover { background: var(--bg-dark); }
+        .dropdown-item .icon { font-size: 18px; }
+        .dropdown-divider {
+            height: 1px;
+            background: #3d3a36;
+            margin: 4px 0;
+        }
+
+        /* Main Layout */
+        .main-container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 24px;
+            padding: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+            flex-wrap: wrap;
+        }
+
+        /* Side Panels */
+        .side-panel {
+            background: var(--bg-panel);
+            border-radius: 8px;
+            padding: 16px;
+            width: 280px;
+            flex-shrink: 0;
+        }
+        
+        /* Board Section */
+        .board-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        .player-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-dark);
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .player-avatar {
+            font-size: 36px;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-darker);
+            border-radius: 8px;
+        }
+        .player-name { font-weight: 600; display: block; }
+        .player-rating-display { color: var(--text-secondary); font-size: 14px; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .stat-box {
+            background: var(--bg-dark);
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .stat-value { font-size: 20px; font-weight: 700; color: var(--green-primary); }
+        .stat-label { font-size: 12px; color: var(--text-secondary); }
+
+        /* Captured Pieces */
+        .captured-pieces {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px;
+            min-height: 32px;
+            padding: 8px;
+            background: var(--bg-dark);
+            border-radius: 6px;
+            margin: 8px 0;
+        }
+        .captured-pieces img {
+            width: 24px;
+            height: 24px;
+            filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.3));
+        }
+        .material-diff {
+            font-weight: 700;
+            color: var(--green-primary);
+            font-size: 14px;
+            margin-left: 8px;
+        }
+
+        /* Chess Timer */
+        .player-timer {
+            font-family: 'Courier New', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            padding: 12px 20px;
+            background: var(--bg-darker);
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 8px;
+        }
+        .player-timer.active {
+            background: var(--green-primary);
+            color: white;
+        }
+        .player-timer.low-time {
+            background: #e74c3c;
+            color: white;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Saved Games List */
+        .saved-games-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .saved-game-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-dark);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .saved-game-item:hover {
+            background: var(--bg-darker);
+            transform: translateX(4px);
+        }
+        .saved-game-info { flex: 1; }
+        .saved-game-date { font-size: 12px; color: var(--text-secondary); }
+        .saved-game-moves { font-weight: 600; }
+        .saved-game-actions { display: flex; gap: 8px; }
+        .saved-game-actions button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .btn-resume { background: var(--green-primary); color: white; }
+        .btn-delete { background: #e74c3c; color: white; }
+
+        /* Time Control Options */
+        .time-options {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .time-option {
+            padding: 12px;
+            background: var(--bg-dark);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .time-option:hover { border-color: var(--green-primary); }
+        .time-option.selected { border-color: var(--green-primary); background: rgba(129, 182, 76, 0.1); }
+        .time-option .time-value { font-size: 18px; font-weight: 700; display: block; }
+        .time-option .time-label { font-size: 11px; color: var(--text-secondary); }
+
+        /* Board Container */
+        .board-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .board-wrapper {
+            position: relative;
+            padding: 24px 0 0 24px;
+        }
+        .coords-files, .coords-ranks {
+            position: absolute;
+            display: flex;
+        }
+        .coords-files {
+            bottom: -20px;
+            left: 24px;
+            width: 560px;
+        }
+        .coords-files span {
+            width: 70px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .coords-ranks {
+            left: 0;
+            top: 24px;
+            height: 560px;
+            flex-direction: column;
+        }
+        .coords-ranks span {
+            height: 70px;
+            display: flex;
+            align-items: center;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* Chess Board */
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, 70px);
+            grid-template-rows: repeat(8, 70px);
+            border: 3px solid var(--bg-dark);
+            border-radius: 4px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        .square {
+            width: 70px;
+            height: 70px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            position: relative;
+        }
+        .square.light { background: var(--board-light); }
+        .square.dark { background: var(--board-dark); }
+        .square.selected { background: var(--selected) !important; }
+        .square.highlighted { background: var(--highlight) !important; }
+        .square.legal-move::after {
+            content: '';
+            width: 20px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 50%;
+            position: absolute;
+        }
+        .square.legal-capture::after {
+            content: '';
+            width: 100%;
+            height: 100%;
+            border: 5px solid rgba(0, 0, 0, 0.15);
+            border-radius: 50%;
+            position: absolute;
+            box-sizing: border-box;
+        }
+        .piece {
+            width: 60px;
+            height: 60px;
+            pointer-events: none;
+            filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.3));
+        }
+
+        /* Status & Controls */
+        .game-status {
+            margin-top: 16px;
+            padding: 12px 24px;
+            background: var(--bg-panel);
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        /* Feature Announcement Banner */
+        .feature-banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+            animation: bannerGlow 3s ease-in-out infinite;
+            position: relative;
+            overflow: hidden;
+        }
+        .feature-banner::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+            animation: shimmer 3s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) rotate(45deg); }
+        }
+        @keyframes bannerGlow {
+            0%, 100% { box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3); }
+            50% { box-shadow: 0 4px 30px rgba(102, 126, 234, 0.5); }
+        }
+        @keyframes fadeSlideOut {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+        .feature-icon {
+            font-size: 40px;
+            animation: walkiePulse 2s ease-in-out infinite;
+            z-index: 1;
+        }
+        @keyframes walkiePulse {
+            0%, 100% { transform: scale(1) rotate(-5deg); }
+            50% { transform: scale(1.1) rotate(5deg); }
+        }
+        .feature-content {
+            flex: 1;
+            z-index: 1;
+        }
+        .feature-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .feature-new-badge {
+            background: #ff6b6b;
+            color: white;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            animation: badgePop 0.5s ease-out;
+        }
+        @keyframes badgePop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .feature-description {
+            font-size: 13px;
+            opacity: 0.9;
+            line-height: 1.4;
+        }
+        .feature-cta {
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.4);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.3s;
+            z-index: 1;
+            white-space: nowrap;
+        }
+        .feature-cta:hover {
+            background: white;
+            color: #667eea;
+            transform: scale(1.05);
+        }
+        .feature-close {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            transition: all 0.2s;
+        }
+        .feature-close:hover {
+            background: rgba(255,255,255,0.4);
+        }
+        @media (max-width: 600px) {
+            .feature-banner {
+                flex-direction: column;
+                text-align: center;
+                padding: 20px 16px;
+            }
+            .feature-icon {
+                font-size: 36px;
+            }
+            .feature-cta {
+                width: 100%;
+            }
+        }
+
+        .game-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .control-btn {
+            background: var(--bg-dark);
+            border: none;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+        .control-btn:hover {
+            background: var(--bg-darker);
+            transform: translateY(-2px);
+        }
+        .control-btn.primary {
+            background: var(--green-primary);
+            color: white;
+            font-weight: 600;
+        }
+        .control-btn.primary:hover { background: var(--green-dark); }
+        .control-btn.danger {
+            background: #e74c3c;
+            color: white;
+        }
+        .control-btn.danger:hover { background: #c0392b; }
+
+        /* Right Panel - Moves */
+        .moves-header {
+            font-weight: 600;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #3d3a36;
+        }
+        .moves-list { max-height: 400px; overflow-y: auto; }
+        .move-row {
+            display: grid;
+            grid-template-columns: 30px 1fr 1fr;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid #3d3a36;
+        }
+        .move-number { color: var(--text-secondary); font-size: 13px; }
+        .move { font-family: monospace; font-size: 14px; }
+
+        /* Coach Panel */
+        .coach-panel {
+            background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid #4a5568;
+        }
+        .coach-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #4a5568;
+        }
+        .coach-avatar {
+            font-size: 28px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .coach-info h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0;
+        }
+        .coach-info span {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .coach-toggle {
+            margin-left: auto;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .coach-toggle:hover {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+        .coach-toggle.active {
+            background: var(--green-primary);
+            color: white;
+        }
+        .move-quality {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .quality-icon {
+            font-size: 28px;
+            animation: qualityPop 0.4s ease-out;
+        }
+        @keyframes qualityPop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+        .quality-info {
+            flex: 1;
+        }
+        .quality-label {
+            font-weight: 700;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .quality-label.best { color: #81B64C; }
+        .quality-label.excellent { color: #96BC4B; }
+        .quality-label.good { color: #8BC34A; }
+        .quality-label.inaccuracy { color: #F7C631; }
+        .quality-label.mistake { color: #FFA459; }
+        .quality-label.blunder { color: #FF6B6B; }
+        .quality-cpl {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .coach-comment {
+            font-size: 13px;
+            line-height: 1.5;
+            color: #e2e8f0;
+            background: rgba(102, 126, 234, 0.1);
+            border-left: 3px solid #667eea;
+            padding: 12px 14px;
+            border-radius: 0 8px 8px 0;
+        }
+        .coach-comment .tip-label {
+            font-size: 10px;
+            color: #667eea;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+            display: block;
+        }
+        .coach-hidden .coach-content {
+            display: none;
+        }
+        .coach-waiting {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+        .coach-waiting .icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+            display: block;
+        }
+        .accuracy-display {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+        .accuracy-ring {
+            position: relative;
+            width: 50px;
+            height: 50px;
+        }
+        .accuracy-ring svg {
+            transform: rotate(-90deg);
+            width: 50px;
+            height: 50px;
+        }
+        .accuracy-ring circle {
+            fill: none;
+            stroke-width: 5;
+        }
+        .accuracy-ring .bg {
+            stroke: rgba(255,255,255,0.1);
+        }
+        .accuracy-ring .progress {
+            stroke: var(--green-primary);
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+        .accuracy-value {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .accuracy-info {
+            flex: 1;
+        }
+        .accuracy-info h4 {
+            font-size: 13px;
+            margin: 0 0 4px 0;
+        }
+        .accuracy-info span {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: var(--bg-panel);
+            border-radius: 12px;
+            padding: 24px;
+            min-width: 360px;
+            max-width: 90%;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-options-scroll {
+            flex: 1;
+            overflow-y: auto;
+            max-height: 50vh;
+            padding-right: 8px;
+        }
+        .modal-options-scroll::-webkit-scrollbar {
+            width: 8px;
+        }
+        .modal-options-scroll::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+            border-radius: 4px;
+        }
+        .modal-options-scroll::-webkit-scrollbar-thumb {
+            background: var(--accent);
+            border-radius: 4px;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .modal-header h2 { font-size: 20px; }
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 28px;
+            cursor: pointer;
+        }
+        .option-group { margin-bottom: 20px; }
+        .option-group label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+        .color-options { display: flex; gap: 12px; }
+        .color-btn {
+            flex: 1;
+            padding: 16px;
+            background: var(--bg-dark);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            color: white;
+            transition: all 0.2s;
+        }
+        .color-btn:hover { border-color: var(--green-primary); }
+        .color-btn.selected { border-color: var(--green-primary); background: var(--green-dark); }
+        .color-btn .piece-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+        .skill-slider { width: 100%; margin-top: 10px; }
+        .skill-slider input[type="range"] {
+            width: 100%;
+            height: 8px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            outline: none;
+        }
+        .skill-slider input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: var(--green-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .skill-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .skill-value { color: var(--green-primary); font-weight: 600; }
+        .modal-buttons { display: flex; gap: 12px; margin-top: 24px; }
+        .btn-secondary, .btn-primary {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-secondary { background: var(--bg-dark); color: white; }
+        .btn-primary { background: var(--green-primary); color: white; }
+        .btn-primary:hover { background: var(--green-dark); }
+
+        /* Promotion Modal */
+        .promotion-options {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 16px;
+        }
+        .promotion-options button {
+            width: 70px;
+            height: 70px;
+            background: var(--bg-dark);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .promotion-options button:hover {
+            border-color: var(--green-primary);
+            transform: scale(1.05);
+        }
+        .promotion-options button img { width: 50px; height: 50px; }
+
+        /* Game Over Modal */
+        .game-result { text-align: center; padding: 20px; }
+        .result-icon { font-size: 64px; margin-bottom: 16px; }
+        .result-text { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+        .result-reason { color: var(--text-secondary); }
+        .accuracy-display {
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--bg-dark);
+            border-radius: 8px;
+        }
+        .accuracy-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .accuracy-value { font-weight: 600; color: var(--green-primary); }
+
+        /* Settings Modal */
+        .settings-group { margin-bottom: 20px; }
+        .settings-group h3 {
+            margin-bottom: 12px;
+            font-size: 16px;
+            color: var(--text-secondary);
+        }
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-dark);
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--bg-darker);
+            border-radius: 26px;
+            transition: 0.3s;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        .toggle-switch input:checked + .toggle-slider { background: var(--green-primary); }
+        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(24px); }
+
+        /* Game Mode Selection */
+        .mode-options { display: flex; flex-direction: column; gap: 8px; }
+        .mode-option {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px;
+            background: var(--bg-dark);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .mode-option:hover { border-color: var(--green-primary); }
+        .mode-option.selected { border-color: var(--green-primary); background: rgba(129, 182, 76, 0.1); }
+        .mode-icon { font-size: 24px; }
+        .mode-info { flex: 1; }
+        .mode-name { font-weight: 600; display: block; }
+        .mode-desc { font-size: 12px; color: var(--text-secondary); }
+        
+        /* Username Input */
+        .username-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-dark);
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+        .username-input:focus {
+            outline: none;
+            border-color: var(--green-primary);
+        }
+        .username-input::placeholder {
+            color: var(--text-secondary);
+        }
+        
+        /* Searching Animation */
+        .searching-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .searching-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--border);
+            border-top-color: var(--green-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .searching-text {
+            font-size: 20px;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+        }
+        .searching-subtext {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+        .searching-cancel {
+            padding: 10px 30px;
+            background: var(--danger);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .searching-cancel:hover {
+            background: #c0392b;
+        }
+        
+        /* Online Game Info */
+        .online-opponent-info {
+            background: var(--bg-dark);
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .opponent-avatar {
+            width: 36px;
+            height: 36px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .opponent-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .online-badge {
+            background: var(--green-primary);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: auto;
+        }
+        
+        /* Voice Chat / Walkie Talkie */
+        .voice-chat-container {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 500;
+        }
+        .voice-chat-container.active {
+            display: block;
+        }
+        .walkie-talkie-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: 3px solid var(--border);
+            background: var(--bg-panel);
+            color: var(--text-primary);
+            font-size: 28px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .walkie-talkie-btn:hover {
+            border-color: var(--green-primary);
+            transform: scale(1.05);
+        }
+        .walkie-talkie-btn.active {
+            background: var(--green-primary);
+            border-color: var(--green-primary);
+            animation: pulse-mic 1s infinite;
+        }
+        .walkie-talkie-btn.receiving {
+            background: var(--accent);
+            border-color: var(--accent);
+            animation: pulse-mic 0.5s infinite;
+        }
+        @keyframes pulse-mic {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(129, 182, 76, 0.4); }
+            50% { box-shadow: 0 0 0 15px rgba(129, 182, 76, 0); }
+        }
+        .voice-status {
+            position: absolute;
+            bottom: 80px;
+            right: 0;
+            background: var(--bg-dark);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .voice-status.show {
+            opacity: 1;
+        }
+        .voice-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .voice-indicator.connected { background: var(--green-primary); }
+        .voice-indicator.disconnected { background: var(--danger); }
+        .voice-indicator.talking { background: var(--accent); animation: blink 0.3s infinite; }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* ============== MOBILE RESPONSIVE ============== */
+        
+        /* Tablets and smaller */
+        @media (max-width: 1024px) {
+            .main-container {
+                flex-direction: column;
+                padding: 10px;
+                gap: 10px;
+            }
+            .side-panel {
+                width: 100%;
+                max-width: 500px;
+                margin: 0 auto;
+            }
+            .board-section {
+                order: -1;
+            }
+            #board {
+                width: min(65vw, 380px) !important;
+                height: min(65vw, 380px) !important;
+            }
+        }
+        
+        /* Mobile phones - Complete redesign */
+        @media (max-width: 768px) {
+            /* Compact header */
+            .header {
+                padding: 6px 10px;
+                gap: 6px;
+            }
+            .logo { font-size: 16px; }
+            .logo-icon { font-size: 20px; }
+            .nav-links { display: none; } /* Hide on mobile, use dropdown */
+            .header-right { gap: 6px; }
+            .user-rating { padding: 4px 8px; font-size: 11px; }
+            .settings-btn { padding: 4px 8px; font-size: 14px; }
+            .dropdown-btn { padding: 6px 10px; font-size: 12px; }
+            
+            /* Main container - tight vertical stack */
+            .main-container {
+                flex-direction: column;
+                padding: 4px;
+                gap: 4px;
+                align-items: center;
+                min-height: auto;
+            }
+            
+            /* HIDE side panels on mobile - show essential info only */
+            .side-panel {
+                display: none !important;
+            }
+            
+            /* Board section takes center */
+            .board-section {
+                width: 100%;
+                order: 0;
+            }
+            
+            /* Mobile game info bar - shows above board */
+            .mobile-game-bar {
+                display: flex !important;
+                width: 100%;
+                max-width: 90vw;
+                background: var(--bg-panel);
+                border-radius: 6px;
+                padding: 6px 10px;
+                margin-bottom: 4px;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .mobile-player-info {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .mobile-avatar { font-size: 20px; }
+            .mobile-name { font-size: 11px; font-weight: 600; }
+            .mobile-timer {
+                background: var(--bg-dark);
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: 700;
+                font-family: monospace;
+            }
+            .mobile-timer.active { background: var(--green-primary); }
+            .mobile-captured {
+                display: flex;
+                gap: 1px;
+                font-size: 12px;
+            }
+            
+            /* Board sizing - fit on screen with info bars */
+            .board-wrapper {
+                max-width: 100%;
+            }
+            #board {
+                width: min(85vw, 300px) !important;
+                height: min(85vw, 300px) !important;
+                margin: 0 auto;
+            }
+            .coords-ranks, .coords-files {
+                font-size: 8px !important;
+            }
+            .square { font-size: 6px !important; }
+            
+            /* Hide feature banner on mobile */
+            .feature-banner { display: none !important; }
+            
+            /* Compact game status */
+            .game-status {
+                font-size: 11px;
+                padding: 4px 8px;
+                margin: 4px 0;
+            }
+            
+            /* Compact controls - icon only */
+            .game-controls {
+                display: flex;
+                justify-content: center;
+                gap: 4px;
+                flex-wrap: wrap;
+                padding: 4px;
+            }
+            .control-btn {
+                padding: 8px;
+                font-size: 14px;
+                min-width: 36px;
+                min-height: 36px;
+            }
+            .control-btn.primary {
+                padding: 8px 12px;
+                font-size: 11px;
+            }
+            
+            /* Modal adjustments */
+            .modal-content {
+                padding: 10px;
+                width: 95%;
+                max-width: 350px;
+                max-height: 85vh;
+                overflow-y: auto;
+            }
+            .modal-header h2 { font-size: 15px; }
+            .modal-options-scroll { max-height: 35vh; }
+            .mode-option { padding: 8px; gap: 8px; }
+            .mode-icon { font-size: 18px; }
+            .mode-name { font-size: 12px; }
+            .mode-desc { font-size: 10px; }
+            .color-btn { padding: 6px; font-size: 10px; }
+            .piece-icon { font-size: 16px; }
+            .time-options { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+            .time-option { padding: 6px; }
+            .time-value { font-size: 13px; }
+            .time-label { font-size: 8px; }
+            .btn-primary, .btn-secondary { padding: 8px 12px; font-size: 12px; }
+            
+            /* Voice button smaller */
+            .voice-chat-container { bottom: 6px; right: 6px; }
+            .walkie-talkie-btn { width: 44px; height: 44px; font-size: 18px; }
+            
+            /* Result modal compact */
+            .result-icon { font-size: 36px !important; }
+            .result-text { font-size: 16px !important; }
+            .result-reason { font-size: 11px !important; }
+        }
+        
+        /* Very small phones */
+        @media (max-width: 380px) {
+            .header { padding: 4px 6px; }
+            .logo { font-size: 14px; }
+            .dropdown-btn { padding: 5px 8px; font-size: 11px; }
+            
+            #board {
+                width: 88vw !important;
+                height: 88vw !important;
+            }
+            
+            .mobile-game-bar {
+                padding: 4px 6px;
+                max-width: 95vw;
+            }
+            .mobile-timer { font-size: 12px; padding: 3px 8px; }
+            .mobile-name { font-size: 10px; }
+            
+            .control-btn { padding: 6px; font-size: 12px; min-width: 32px; }
+            
+            .modal-content { width: 98%; padding: 8px; }
+            .time-options { grid-template-columns: repeat(2, 1fr); }
+        }
+        
+        /* Landscape mobile */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .main-container {
+                flex-direction: row;
+                padding: 4px;
+                gap: 8px;
+            }
+            .side-panel {
+                display: block !important;
+                width: 180px;
+                max-height: calc(100vh - 50px);
+                overflow-y: auto;
+                padding: 8px;
+            }
+            .side-panel:last-child { display: none !important; }
+            .board-section { flex-shrink: 0; }
+            #board {
+                width: min(60vh, 280px) !important;
+                height: min(60vh, 280px) !important;
+            }
+            .stats-grid { display: none; }
+            .mobile-game-bar { display: none !important; }
+        }
+        
+        /* Touch-friendly */
+        @media (hover: none) and (pointer: coarse) {
+            .square { -webkit-tap-highlight-color: transparent; }
+            .control-btn, .btn-primary, .btn-secondary, .mode-option, .color-btn, .time-option {
+                min-height: 40px;
+            }
+        }
+        
+        /* Mobile game bar - hidden by default, shown via media query */
+        .mobile-game-bar { display: none; }
+                order: 0;
+            }
+            #board {
+                width: min(70vh, 320px) !important;
+                height: min(70vh, 320px) !important;
+            }
+            .stats-grid {
+                display: none; /* Hide stats in landscape to save space */
+            }
+            .modal-options-scroll {
+                max-height: 35vh;
+            }
+        }
+        
+        /* Touch-friendly adjustments */
+        @media (hover: none) and (pointer: coarse) {
+            .square {
+                -webkit-tap-highlight-color: transparent;
+            }
+            .control-btn, .btn-primary, .btn-secondary, .mode-option, .color-btn, .time-option {
+                min-height: 44px;
+            }
+            .dropdown-btn {
+                min-height: 40px;
+            }
+        }
+
+        /* Chess Newsfeed Styles */
+        .newsfeed-section {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .newsfeed-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .newsfeed-title {
+            font-size: 24px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .newsfeed-title .icon {
+            font-size: 28px;
+        }
+        .newsfeed-refresh {
+            background: var(--bg-panel);
+            border: none;
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .newsfeed-refresh:hover {
+            background: var(--bg-dark);
+            color: white;
+        }
+        .newsfeed-refresh.loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+        .newsfeed-refresh.loading .refresh-icon {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .news-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .news-card {
+            background: var(--bg-panel);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: all 0.3s;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+        }
+        .news-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+        .news-image {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            background: var(--bg-dark);
+        }
+        .news-image-placeholder {
+            width: 100%;
+            height: 180px;
+            background: linear-gradient(135deg, var(--bg-dark), var(--bg-darker));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+        }
+        .news-content {
+            padding: 16px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .news-source {
+            font-size: 11px;
+            color: var(--green-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .news-title-text {
+            font-size: 16px;
+            font-weight: 600;
+            line-height: 1.4;
+            margin-bottom: 10px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .news-description {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            flex: 1;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .news-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .news-date {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .news-read-more {
+            color: var(--green-primary);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .news-loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        .news-loading .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--bg-dark);
+            border-top-color: var(--green-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        .news-error {
+            text-align: center;
+            padding: 40px 20px;
+            background: var(--bg-panel);
+            border-radius: 12px;
+            color: var(--text-secondary);
+        }
+        .news-error .error-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        .news-error button {
+            margin-top: 16px;
+            background: var(--green-primary);
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .news-category-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .news-tab {
+            background: var(--bg-panel);
+            border: none;
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .news-tab:hover {
+            background: var(--bg-dark);
+            color: white;
+        }
+        .news-tab.active {
+            background: var(--green-primary);
+            color: white;
+        }
+        @media (max-width: 768px) {
+            .newsfeed-section {
+                padding: 16px;
+            }
+            .newsfeed-title {
+                font-size: 20px;
+            }
+            .news-grid {
+                grid-template-columns: 1fr;
+            }
+            .news-image, .news-image-placeholder {
+                height: 150px;
+            }
+        }
+    </style>
+</head>
+    <body>
+    <!-- Header -->
+    <header class="header">
+        <a href="/" class="logo">
+            <span class="logo-icon">♟</span>
+            <span>AI<span class="logo-accent">gambit</span></span>
+        </a>
+        <nav class="nav-links">
+            <a href="/">Home</a>
+            <!-- Play Dropdown Menu -->
+            <div class="dropdown">
+                <button class="dropdown-btn">🎮 Play ▾</button>
+                <div class="dropdown-content">
+                    <button class="dropdown-item" onclick="openGameModeModal('engine')">
+                        <span class="icon">🤖</span>
+                        <span>Play vs Engine</span>
+                    </button>
+                    <button class="dropdown-item" onclick="openGameModeModal('online')">
+                        <span class="icon">🌐</span>
+                        <span>Play Online</span>
+                    </button>
+                    <button class="dropdown-item" onclick="openGameModeModal('multiplayer')">
+                        <span class="icon">👥</span>
+                        <span>Local Multiplayer</span>
+                    </button>
+                    <button class="dropdown-item" onclick="openGameModeModal('clone')">
+                        <span class="icon">🧬</span>
+                        <span>Play vs Clone</span>
+                    </button>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item" onclick="openGameModeModal('watch')">
+                        <span class="icon">👀</span>
+                        <span>Watch AI vs AI</span>
+                    </button>
+                </div>
+            </div>
+            <a href="/learn">Learn</a>
+            <a href="/review">Review</a>
+        </nav>
+        <div class="header-right">
+            <div class="user-rating">⭐ <span id="user-rating">1200</span></div>
+            <button class="settings-btn" onclick="openSettingsModal()">⚙️</button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Left Panel -->
+        <div class="side-panel">
+            <div class="player-card" id="opponent-card">
+                <div class="player-avatar">🤖</div>
+                <div>
+                    <span class="player-name" id="opponent-name">Stockfish AI</span>
+                    <span class="player-rating-display" id="engine-level">Level 10</span>
+                </div>
+            </div>
+            <div class="player-timer" id="opponent-timer">10:00</div>
+            <div class="captured-pieces" id="white-captured"></div>
+
+            <div class="captured-pieces" id="black-captured"></div>
+            <div class="player-timer active" id="player-timer">10:00</div>
+            <div class="player-card" id="player-card">
+                <div class="player-avatar">👤</div>
+                <div>
+                    <span class="player-name">You</span>
+                    <span class="player-rating-display" id="player-rating-label">1200</span>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-value" id="games-played">0</div>
+                    <div class="stat-label">Games</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="win-rate">0%</div>
+                    <div class="stat-label">Win Rate</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="wins-count">0</div>
+                    <div class="stat-label">Wins</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="losses-count">0</div>
+                    <div class="stat-label">Losses</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center - Board -->
+        <div class="board-section">
+            <!-- Mobile Game Info Bar (visible only on mobile) -->
+            <div class="mobile-game-bar" id="mobile-opponent-bar">
+                <div class="mobile-player-info">
+                    <span class="mobile-avatar">🤖</span>
+                    <span class="mobile-name" id="mobile-opponent-name">Stockfish</span>
+                </div>
+                <div class="mobile-captured" id="mobile-white-captured"></div>
+                <div class="mobile-timer" id="mobile-opponent-timer">10:00</div>
+            </div>
+            
+            <div class="board-wrapper">
+                <div class="coords-ranks" id="ranks">
+                    <span>8</span><span>7</span><span>6</span><span>5</span>
+                    <span>4</span><span>3</span><span>2</span><span>1</span>
+                </div>
+                <div id="board"></div>
+                <div class="coords-files" id="files">
+                    <span>a</span><span>b</span><span>c</span><span>d</span>
+                    <span>e</span><span>f</span><span>g</span><span>h</span>
+                </div>
+            </div>
+            
+            <!-- Mobile Player Info Bar (visible only on mobile) -->
+            <div class="mobile-game-bar" id="mobile-player-bar">
+                <div class="mobile-timer active" id="mobile-player-timer">10:00</div>
+                <div class="mobile-captured" id="mobile-black-captured"></div>
+                <div class="mobile-player-info">
+                    <span class="mobile-name">You</span>
+                    <span class="mobile-avatar">👤</span>
+                </div>
+            </div>
+
+            <!-- Feature Announcement Banner -->
+            <div class="feature-banner" id="feature-banner">
+                <button class="feature-close" onclick="closeBanner()">×</button>
+                <div class="feature-icon">📻</div>
+                <div class="feature-content">
+                    <div class="feature-title">
+                        Walkie-Talkie Voice Chat
+                        <span class="feature-new-badge">New!</span>
+                    </div>
+                    <div class="feature-description">
+                        Talk to your opponent in real-time during online matches! Push-to-talk makes it easy and fun.
+                    </div>
+                </div>
+                <button class="feature-cta" onclick="openGameModeModal('online')">
+                    🌐 Play Online Now
+                </button>
+            </div>
+
+            <div class="game-status" id="game-status">
+                Select a game mode from the Play menu to start!
+            </div>
+
+            <div class="game-controls">
+                <button class="control-btn" onclick="flipBoard()" title="Flip Board">🔄</button>
+                <button class="control-btn" onclick="undoMove()" title="Undo">↩️</button>
+                <button class="control-btn" onclick="saveCurrentGame()" title="Save Game">💾</button>
+                <button class="control-btn" onclick="openSavedGamesModal()" title="Resume Game">📂</button>
+                <button class="control-btn danger" onclick="resignGame()" title="Resign">🏳️</button>
+                <button class="control-btn primary" onclick="openGameModeModal('engine')">➕ New Game</button>
+            </div>
+        </div>
+
+        <!-- Right Panel - Moves -->
+        <div class="side-panel">
+            <!-- Coach Panel -->
+            <div class="coach-panel" id="coach-panel">
+                <div class="coach-header">
+                    <div class="coach-avatar">🎓</div>
+                    <div class="coach-info">
+                        <h3>Chess Coach</h3>
+                        <span>Move Analysis</span>
+                    </div>
+                    <button class="coach-toggle active" id="coach-toggle" onclick="toggleCoach()">
+                        👁️ On
+                    </button>
+                </div>
+                <div class="coach-content" id="coach-content">
+                    <div class="coach-waiting" id="coach-waiting">
+                        <span class="icon">♟️</span>
+                        Make a move to get feedback!
+                    </div>
+                    <div id="coach-feedback" style="display: none;">
+                        <div class="move-quality" id="move-quality">
+                            <span class="quality-icon" id="quality-icon">✨</span>
+                            <div class="quality-info">
+                                <div class="quality-label" id="quality-label">Excellent</div>
+                                <div class="quality-cpl" id="quality-cpl">Best move!</div>
+                            </div>
+                        </div>
+                        <div class="coach-comment" id="coach-comment">
+                            <span class="tip-label">💡 Coach Says</span>
+                            Great move! You're playing like a pro.
+                        </div>
+                        <div class="accuracy-display" id="accuracy-display">
+                            <div class="accuracy-ring">
+                                <svg viewBox="0 0 50 50">
+                                    <circle class="bg" cx="25" cy="25" r="20"/>
+                                    <circle class="progress" id="accuracy-progress" cx="25" cy="25" r="20"
+                                        stroke-dasharray="125.6" stroke-dashoffset="125.6"/>
+                                </svg>
+                                <span class="accuracy-value" id="accuracy-value">--</span>
+                            </div>
+                            <div class="accuracy-info">
+                                <h4>Your Accuracy</h4>
+                                <span id="accuracy-moves">0 moves analyzed</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="moves-header">📋 Moves</div>
+            <div class="moves-list" id="moves-list"></div>
+        </div>
+    </div>
+
+    <!-- Game Mode Modal -->
+    <div class="modal" id="game-mode-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚔️ New Game</h2>
+                <button class="modal-close" onclick="closeGameModeModal()">&times;</button>
+            </div>
+
+            <div class="modal-options-scroll">
+            <!-- Game Mode Selection -->
+            <div class="option-group">
+                <label>Game Mode:</label>
+                <div class="mode-options">
+                    <div class="mode-option selected" data-mode="engine" onclick="selectGameMode(this)">
+                        <span class="mode-icon">🤖</span>
+                        <div class="mode-info">
+                            <span class="mode-name">Play vs Engine</span>
+                            <span class="mode-desc">Challenge Stockfish AI at your level</span>
+                        </div>
+                    </div>
+                    <div class="mode-option" data-mode="online" onclick="selectGameMode(this)">
+                        <span class="mode-icon">🌐</span>
+                        <div class="mode-info">
+                            <span class="mode-name">Play Online</span>
+                            <span class="mode-desc">Challenge players around the world</span>
+                        </div>
+                    </div>
+                    <div class="mode-option" data-mode="multiplayer" onclick="selectGameMode(this)">
+                        <span class="mode-icon">👥</span>
+                        <div class="mode-info">
+                            <span class="mode-name">Local Multiplayer</span>
+                            <span class="mode-desc">Play with a friend on the same device</span>
+                        </div>
+                    </div>
+                    <div class="mode-option" data-mode="clone" onclick="selectGameMode(this)">
+                        <span class="mode-icon">🧬</span>
+                        <div class="mode-info">
+                            <span class="mode-name">Play vs Clone</span>
+                            <span class="mode-desc">Face an AI trained on your style</span>
+                        </div>
+                        <div class="clone-lock-overlay" id="clone-lock-overlay" style="display:flex;">
+                            <span class="lock-icon">🔒</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Username (for Online Play) -->
+            <div class="option-group" id="username-option" style="display: none;">
+                <label>Your Username:</label>
+                <input type="text" id="online-username" class="username-input" placeholder="Enter your username" maxlength="20" value="">
+            </div>
+
+            <!-- Color Selection (for vs Engine/Clone) -->
+            <div class="option-group" id="color-option">
+                <label>Play as:</label>
+                <div class="color-options">
+                    <button class="color-btn selected" data-color="white" onclick="selectColor(this)">
+                        <span class="piece-icon">♔</span>
+                        <span>White</span>
+                    </button>
+                    <button class="color-btn" data-color="random" onclick="selectColor(this)">
+                        <span class="piece-icon">🎲</span>
+                        <span>Random</span>
+                    </button>
+                    <button class="color-btn" data-color="black" onclick="selectColor(this)">
+                        <span class="piece-icon">♚</span>
+                        <span>Black</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Difficulty Selection (for vs Engine) -->
+            <div class="option-group" id="difficulty-option">
+                <label>AI Difficulty: <span id="skill-display" class="skill-value">Level 10</span></label>
+                <div class="skill-slider">
+                    <input type="range" id="skill-slider" min="1" max="20" value="10" oninput="updateSkillDisplay()">
+                    <div class="skill-labels">
+                        <span>Beginner</span>
+                        <span>Master</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Time Control -->
+            <div class="option-group" id="time-option">
+                <label>Time Control:</label>
+                <div class="time-options">
+                    <div class="time-option" data-time="0" onclick="selectTimeControl(this)">
+                        <span class="time-value">∞</span>
+                        <span class="time-label">No limit</span>
+                    </div>
+                    <div class="time-option" data-time="60" onclick="selectTimeControl(this)">
+                        <span class="time-value">1</span>
+                        <span class="time-label">Bullet</span>
+                    </div>
+                    <div class="time-option" data-time="180" onclick="selectTimeControl(this)">
+                        <span class="time-value">3</span>
+                        <span class="time-label">Blitz</span>
+                    </div>
+                    <div class="time-option" data-time="300" onclick="selectTimeControl(this)">
+                        <span class="time-value">5</span>
+                        <span class="time-label">Blitz</span>
+                    </div>
+                    <div class="time-option selected" data-time="600" onclick="selectTimeControl(this)">
+                        <span class="time-value">10</span>
+                        <span class="time-label">Rapid</span>
+                    </div>
+                    <div class="time-option" data-time="900" onclick="selectTimeControl(this)">
+                        <span class="time-value">15</span>
+                        <span class="time-label">Rapid</span>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button class="btn-secondary" onclick="closeGameModeModal()">Cancel</button>
+                <button class="btn-primary" onclick="startGame()">▶️ Play</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Promotion Modal -->
+    <div class="modal" id="promotion-modal">
+        <div class="modal-content">
+            <h3 style="text-align: center; margin-bottom: 16px;">Promote Pawn</h3>
+            <div class="promotion-options" id="promotion-options"></div>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div class="modal" id="game-over-modal">
+        <div class="modal-content">
+            <div class="game-result">
+                <div class="result-icon" id="result-icon">🏆</div>
+                <div class="result-text" id="result-text">You Win!</div>
+                <div class="result-reason" id="result-reason">by checkmate</div>
+                <div class="accuracy-display">
+                    <div class="accuracy-row">
+                        <span>Moves</span>
+                        <span class="accuracy-value" id="final-moves">0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-secondary" onclick="closeGameOverModal()">Review</button>
+                <button class="btn-primary" onclick="closeGameOverModal(); openGameModeModal('engine');">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settings-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚙️ Settings</h2>
+                <button class="modal-close" onclick="closeSettingsModal()">&times;</button>
+            </div>
+
+            <div class="settings-group">
+                <h3>Board</h3>
+                <div class="setting-row">
+                    <span>Show Coordinates</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="show-coords" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-row">
+                    <span>Show Legal Moves</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="show-legal-moves" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-row">
+                    <span>Highlight Last Move</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="highlight-last-move" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3>Sound</h3>
+                <div class="setting-row">
+                    <span>Move Sounds</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="move-sounds" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="closeSettingsModal()">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Saved Games Modal -->
+    <div class="modal" id="saved-games-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📂 Saved Games</h2>
+                <button class="modal-close" onclick="closeSavedGamesModal()">&times;</button>
+            </div>
+            <div class="saved-games-list" id="saved-games-list">
+                <p style="color: var(--text-secondary); text-align: center; padding: 20px;">No saved games</p>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-secondary" onclick="closeSavedGamesModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Searching for Opponent Overlay -->
+    <div class="searching-overlay" id="searching-overlay" style="display: none;">
+        <div class="searching-spinner"></div>
+        <div class="searching-text">Finding an opponent...</div>
+        <div class="searching-subtext" id="searching-time">10 min • Rapid</div>
+        <button class="searching-cancel" onclick="cancelSearch()">Cancel</button>
+    </div>
+
+    <!-- Voice Chat / Walkie Talkie Button -->
+    <div class="voice-chat-container" id="voice-chat-container">
+        <div class="voice-status" id="voice-status">
+            <span class="voice-indicator connected" id="voice-indicator"></span>
+            <span id="voice-status-text">Voice ready</span>
+        </div>
+        <button class="walkie-talkie-btn" id="walkie-btn" 
+                onclick="toggleMute()">
+            🎤
+        </button>
+    </div>
+
+    <!-- Remote Audio Element -->
+    <audio id="remote-audio" autoplay></audio>
+
+    <!-- Draw Offer Modal -->
+    <div class="modal" id="draw-offer-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🤝 Draw Offer</h2>
+                <button class="modal-close" onclick="declineDrawOffer()">&times;</button>
+            </div>
+            <p style="text-align: center; margin-bottom: 20px;">
+                <span id="draw-offerer">Opponent</span> offers a draw
+            </p>
+            <div class="modal-buttons">
+                <button class="btn-secondary" onclick="declineDrawOffer()">Decline</button>
+                <button class="btn-primary" onclick="acceptDrawOffer()">Accept</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Socket.IO for online play -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+    <script>
+        // ========== CLONE MODE LOCK ========== //
+        let cloneUnlocked = false;
+        let cloneLockReason = '';
+
+        async function checkCloneUnlock() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                // Accept both {success, stats} and {games_played} for compatibility
+                let stats = data.stats || data;
+                const gamesPlayed = stats.games_played || stats.games || 0;
+                const gamesNeeded = 10;
+                // Unlock after 10 games played vs engine
+                if (gamesPlayed >= gamesNeeded) {
+                    cloneUnlocked = true;
+                    document.getElementById('clone-lock-overlay').style.display = 'none';
+                } else {
+                    cloneUnlocked = false;
+                    const remaining = gamesNeeded - gamesPlayed;
+                    cloneLockReason = `Play ${remaining} more game${remaining !== 1 ? 's' : ''} vs Stockfish to unlock your AI Clone!\n\nThe clone learns your playing style: favorite openings, mid-game tactics, endgame patterns, and risk tolerance.`;
+                    document.getElementById('clone-lock-overlay').style.display = 'flex';
+                }
+            } catch (e) {
+                cloneUnlocked = false;
+                cloneLockReason = 'Unable to check unlock status.';
+                document.getElementById('clone-lock-overlay').style.display = 'flex';
+            }
+        }
+
+        // Intercept clone mode selection if locked
+        function selectGameMode(el) {
+            const mode = el.dataset.mode;
+            if (mode === 'clone' && !cloneUnlocked) {
+                showCloneLockModal();
+                return;
+            }
+            document.querySelectorAll('.mode-option').forEach(o => o.classList.remove('selected'));
+            el.classList.add('selected');
+            const colorOption = document.getElementById('color-option');
+            const difficultyOption = document.getElementById('difficulty-option');
+            const usernameOption = document.getElementById('username-option');
+            if (mode !== 'online') hideVoiceChat();
+            if (mode === 'multiplayer') {
+                colorOption.style.display = 'none';
+                difficultyOption.style.display = 'none';
+                usernameOption.style.display = 'none';
+            } else if (mode === 'online') {
+                colorOption.style.display = 'none';
+                difficultyOption.style.display = 'none';
+                usernameOption.style.display = 'block';
+                const savedUsername = localStorage.getItem('aigambit_username');
+                if (savedUsername) document.getElementById('online-username').value = savedUsername;
+            } else if (mode === 'clone') {
+                colorOption.style.display = 'block';
+                difficultyOption.style.display = 'none';
+                usernameOption.style.display = 'none';
+            } else {
+                colorOption.style.display = 'block';
+                difficultyOption.style.display = 'block';
+                usernameOption.style.display = 'none';
+            }
+        }
+
+        // Show modal explaining lock
+        function showCloneLockModal() {
+            let modal = document.getElementById('clone-lock-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.className = 'modal';
+                modal.id = 'clone-lock-modal';
+                modal.innerHTML = `
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2>🔒 AI Clone Locked</h2>
+                            <button class="modal-close" onclick="closeCloneLockModal()">&times;</button>
+                        </div>
+                        <div style="padding: 24px; text-align: center;">
+                            <p style="font-size: 18px; white-space: pre-line;">${cloneLockReason || 'Play 10 games vs Stockfish to unlock your AI Clone!'}</p>
+                            <div style="margin-top: 20px; padding: 16px; background: var(--bg-dark); border-radius: 8px; text-align: left;">
+                                <h4 style="color: var(--green-primary); margin-bottom: 12px;">🧬 What the Clone Learns:</h4>
+                                <ul style="color: var(--text-secondary); line-height: 1.8; padding-left: 20px;">
+                                    <li><strong>Opening Preferences</strong> - Your favorite opening lines</li>
+                                    <li><strong>Mid-game Tactics</strong> - Aggressive vs positional play style</li>
+                                    <li><strong>Endgame Patterns</strong> - How you convert advantages</li>
+                                    <li><strong>Risk Tolerance</strong> - Whether you play safe or bold</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="modal-buttons">
+                            <button class="btn-primary" onclick="closeCloneLockModal(); openGameModeModal('engine');">Play vs Stockfish Now</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            } else {
+                // Update the message
+                const msgEl = modal.querySelector('p');
+                if (msgEl) msgEl.textContent = cloneLockReason || 'Play 10 games vs Stockfish to unlock your AI Clone!';
+            }
+            modal.classList.add('active');
+        }
+        function closeCloneLockModal() {
+            const modal = document.getElementById('clone-lock-modal');
+            if (modal) modal.classList.remove('active');
+        }
+
+        // Piece images from lichess
+        const PIECE_IMAGES = {
+            'K': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/wK.svg',
+            'Q': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/wQ.svg',
+            'R': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/wR.svg',
+            'B': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/wB.svg',
+            'N': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/wN.svg',
+            'P': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/wP.svg',
+            'k': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/bK.svg',
+            'q': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/bQ.svg',
+            'r': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/bR.svg',
+            'b': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/bB.svg',
+            'n': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/bN.svg',
+            'p': 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/bP.svg'
+        };
+
+        // Unicode chess pieces for mobile display
+        const PIECE_UNICODE = {
+            'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+            'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+        };
+
+        // Game state
+        let game = {
+            fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            playerColor: 'white',
+            engineSkill: 10,
+            selectedSquare: null,
+            legalMoves: [],
+            moveHistory: [],
+            isPlayerTurn: true,
+            gameOver: false,
+            flipped: false,
+            gameMode: 'engine', // 'engine', 'multiplayer', 'clone', 'online'
+            timeControl: 600, // seconds (10 min default)
+            playerTime: 600,
+            opponentTime: 600,
+            capturedByWhite: [], // pieces captured by white (black pieces)
+            capturedByBlack: [],  // pieces captured by black (white pieces)
+            // Coach state
+            coachEnabled: true,
+            moveQualities: [], // track move qualities for accuracy
+            totalCPL: 0
+        };
+
+        // Online game state
+        let onlineGame = {
+            socket: null,
+            gameId: null,
+            username: localStorage.getItem('aigambit_username') || '',
+            opponentName: '',
+            isSearching: false,
+            connected: false
+        };
+
+        // Voice chat state
+        let voiceChat = {
+            peerConnection: null,
+            localStream: null,
+            isTalking: false,
+            isMuted: false,
+            isConnected: false,
+            iceCandidates: []
+        };
+
+        // Timer interval
+        let timerInterval = null;
+
+        // Settings
+        let settings = {
+            showCoords: true,
+            showLegalMoves: true,
+            highlightLastMove: true,
+            moveSounds: true
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            createBoard();
+            loadStats();
+            checkCloneUnlock();
+        });
+
+        function createBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const square = document.createElement('div');
+                    const isLight = (row + col) % 2 === 0;
+
+                    const actualRow = game.flipped ? 7 - row : row;
+                    const actualCol = game.flipped ? 7 - col : col;
+                    const squareId = String.fromCharCode(97 + actualCol) + (8 - actualRow);
+
+                    square.className = `square ${isLight ? 'light' : 'dark'}`;
+                    square.dataset.square = squareId;
+                    square.onclick = () => handleSquareClick(squareId);
+
+                    board.appendChild(square);
+                }
+            }
+
+            updateCoordinates();
+            renderPieces();
+        }
+
+        function updateCoordinates() {
+            const files = game.flipped ? 'hgfedcba' : 'abcdefgh';
+            const ranks = game.flipped ? '12345678' : '87654321';
+            document.getElementById('files').innerHTML = files.split('').map(f => `<span>${f}</span>`).join('');
+            document.getElementById('ranks').innerHTML = ranks.split('').map(r => `<span>${r}</span>`).join('');
+        }
+
+        function parseFEN(fen) {
+            const pieces = {};
+            const [position] = fen.split(' ');
+            const rows = position.split('/');
+
+            for (let row = 0; row < 8; row++) {
+                let col = 0;
+                for (const char of rows[row]) {
+                    if (isNaN(char)) {
+                        const sq = String.fromCharCode(97 + col) + (8 - row);
+                        pieces[sq] = char;
+                        col++;
+                    } else {
+                        col += parseInt(char);
+                    }
+                }
+            }
+            return pieces;
+        }
+
+        function renderPieces() {
+            const pieces = parseFEN(game.fen);
+
+            document.querySelectorAll('.square').forEach(sq => {
+                const squareId = sq.dataset.square;
+                const piece = pieces[squareId];
+
+                sq.innerHTML = '';
+                sq.classList.remove('selected', 'highlighted', 'legal-move', 'legal-capture');
+
+                if (piece && PIECE_IMAGES[piece]) {
+                    const img = document.createElement('img');
+                    img.src = PIECE_IMAGES[piece];
+                    img.className = 'piece';
+                    img.alt = piece;
+                    img.draggable = false;
+                    sq.appendChild(img);
+                }
+
+                if (squareId === game.selectedSquare) {
+                    sq.classList.add('selected');
+                }
+
+                if (settings.showLegalMoves) {
+                    const legalMove = game.legalMoves.find(m => m.to === squareId);
+                    if (legalMove) {
+                        sq.classList.add(legalMove.is_capture ? 'legal-capture' : 'legal-move');
+                    }
+                }
+            });
+
+            if (settings.highlightLastMove && game.moveHistory.length > 0) {
+                const last = game.moveHistory[game.moveHistory.length - 1];
+                const from = document.querySelector(`[data-square="${last.from}"]`);
+                const to = document.querySelector(`[data-square="${last.to}"]`);
+                if (from) from.classList.add('highlighted');
+                if (to) to.classList.add('highlighted');
+            }
+        }
+
+        async function handleSquareClick(squareId) {
+            if (game.gameOver) return;
+            
+            // For multiplayer, always allow moves
+            if (game.gameMode !== 'multiplayer' && !game.isPlayerTurn) return;
+
+            if (game.selectedSquare) {
+                const move = game.legalMoves.find(m => m.to === squareId);
+                if (move) {
+                    if (isPromotion(game.selectedSquare, squareId)) {
+                        showPromotionModal(game.selectedSquare, squareId);
+                    } else {
+                        await makeMove(move.uci);
+                    }
+                    return;
+                }
+            }
+
+            const pieces = parseFEN(game.fen);
+            const piece = pieces[squareId];
+
+            // Determine if this is our piece based on game mode
+            let isOurPiece = false;
+            if (game.gameMode === 'multiplayer') {
+                // In multiplayer, check whose turn it is
+                const turn = game.fen.split(' ')[1];
+                isOurPiece = piece && (
+                    (turn === 'w' && piece === piece.toUpperCase()) ||
+                    (turn === 'b' && piece === piece.toLowerCase())
+                );
+            } else {
+                isOurPiece = piece && (
+                    (game.playerColor === 'white' && piece === piece.toUpperCase()) ||
+                    (game.playerColor === 'black' && piece === piece.toLowerCase())
+                );
+            }
+
+            if (isOurPiece) {
+                game.selectedSquare = squareId;
+                await fetchLegalMoves(squareId);
+            } else {
+                game.selectedSquare = null;
+                game.legalMoves = [];
+            }
+
+            renderPieces();
+        }
+
+        function isPromotion(from, to) {
+            const pieces = parseFEN(game.fen);
+            const piece = pieces[from];
+            if (!piece || piece.toLowerCase() !== 'p') return false;
+            const toRank = parseInt(to[1]);
+            return toRank === 1 || toRank === 8;
+        }
+
+        function showPromotionModal(from, to) {
+            const modal = document.getElementById('promotion-modal');
+            const options = document.getElementById('promotion-options');
+            const turn = game.fen.split(' ')[1];
+            const isWhite = game.gameMode === 'multiplayer' ? turn === 'w' : game.playerColor === 'white';
+            const pieces = isWhite ? ['Q', 'R', 'B', 'N'] : ['q', 'r', 'b', 'n'];
+
+            options.innerHTML = pieces.map(p => `
+                <button onclick="promoteAndMove('${from}', '${to}', '${p.toLowerCase()}')">
+                    <img src="${PIECE_IMAGES[p]}" alt="${p}">
+                </button>
+            `).join('');
+
+            modal.classList.add('active');
+        }
+
+        async function promoteAndMove(from, to, promotionPiece) {
+            document.getElementById('promotion-modal').classList.remove('active');
+            await makeMove(from + to + promotionPiece);
+        }
+
+        async function fetchLegalMoves(square) {
+            try {
+                const res = await fetch('/api/legal_moves', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fen: game.fen, square })
+                });
+                const data = await res.json();
+                game.legalMoves = data.moves || [];
+            } catch (err) {
+                console.error('Error fetching legal moves:', err);
+                game.legalMoves = [];
+            }
+        }
+
+        async function makeMove(uci) {
+            game.selectedSquare = null;
+            game.legalMoves = [];
+            
+            // Handle online games differently
+            if (game.gameMode === 'online') {
+                game.isPlayerTurn = false;
+                renderPieces();
+                sendOnlineMove(uci);
+                game.moveHistory.push({ from: uci.slice(0,2), to: uci.slice(2,4), uci });
+                updateMovesList();
+                updateStatus('⏳ Waiting for opponent...');
+                return;
+            }
+            
+            if (game.gameMode !== 'multiplayer') {
+                game.isPlayerTurn = false;
+                updateStatus(game.gameMode === 'clone' ? '🧬 Clone is thinking...' : '🤔 AI is thinking...');
+            }
+            renderPieces();
+
+            try {
+                // First, make the player's move
+                const res = await fetch('/api/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fen: game.fen,
+                        move: uci,
+                        get_engine_move: game.gameMode === 'engine',  // Only engine mode gets move here
+                        skill: game.engineSkill
+                    })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    game.moveHistory.push({ from: uci.slice(0,2), to: uci.slice(2,4), uci });
+                    game.fen = data.fen;
+
+                    // Show coach feedback for player move
+                    if (data.player_eval && game.coachEnabled) {
+                        updateCoachFeedback(data.player_eval);
+                    }
+
+                    // Handle engine move for engine mode
+                    if (data.engine_move && game.gameMode === 'engine') {
+                        game.moveHistory.push({
+                            from: data.engine_move.slice(0,2),
+                            to: data.engine_move.slice(2,4),
+                            uci: data.engine_move
+                        });
+                        game.fen = data.fen;
+                    }
+                    
+                    // Handle clone mode - get move from clone endpoint
+                    if (game.gameMode === 'clone' && !data.game_over) {
+                        await getCloneMove();
+                    }
+
+                    if (data.game_over) {
+                        game.gameOver = true;
+                        stopTimer();
+                        showGameOver(data.result);
+                    } else {
+                        if (game.gameMode === 'multiplayer') {
+                            const turn = game.fen.split(' ')[1];
+                            updateStatus(turn === 'w' ? '⬜ White to move' : '⬛ Black to move');
+                        } else {
+                            game.isPlayerTurn = true;
+                            updateStatus('♟ Your turn');
+                        }
+                    }
+
+                    updateMovesList();
+                    renderPieces();
+                    updateCapturedPieces();
+                    updateTimerDisplay();
+                } else {
+                    updateStatus('❌ Invalid move');
+                    game.isPlayerTurn = true;
+                }
+            } catch (err) {
+                console.error('Error making move:', err);
+                updateStatus('❌ Error - try again');
+                game.isPlayerTurn = true;
+            }
+        }
+        
+        async function getCloneMove() {
+            // Get move from AI Clone based on learned player style
+            try {
+                const cloneColor = game.playerColor === 'white' ? 'black' : 'white';
+                const res = await fetch('/api/clone/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fen: game.fen,
+                        clone_color: cloneColor
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success && data.move) {
+                    // Apply the clone's move
+                    const move = data.move;
+                    game.moveHistory.push({
+                        from: move.slice(0,2),
+                        to: move.slice(2,4),
+                        uci: move
+                    });
+                    
+                    // Update the board position
+                    const boardRes = await fetch('/api/move', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            fen: game.fen,
+                            move: move,
+                            get_engine_move: false
+                        })
+                    });
+                    
+                    const boardData = await boardRes.json();
+                    if (boardData.success) {
+                        game.fen = boardData.fen;
+                        createBoard(); // Refresh the board display
+                        
+                        if (boardData.game_over) {
+                            game.gameOver = true;
+                            stopTimer();
+                            showGameOver(boardData.result);
+                        }
+                        
+                        // Show clone move source in status
+                        const sourceText = data.source === 'learned' ? '🧠 (from memory)' : 
+                                          data.source === 'style' ? '🎭 (style-based)' : '';
+                        updateStatus(`🧬 Clone played: ${data.move_san} ${sourceText}`);
+                        setTimeout(() => {
+                            if (!game.gameOver) {
+                                updateStatus('♟ Your turn');
+                            }
+                        }, 1500);
+                    }
+                }
+            } catch (err) {
+                console.error('Error getting clone move:', err);
+                // Fallback to engine if clone fails
+                updateStatus('⚠️ Clone fallback to engine');
+            }
+        }
+
+        // ============== COACH FUNCTIONS ==============
+        function toggleCoach() {
+            game.coachEnabled = !game.coachEnabled;
+            const btn = document.getElementById('coach-toggle');
+            const content = document.getElementById('coach-content');
+            
+            if (game.coachEnabled) {
+                btn.classList.add('active');
+                btn.innerHTML = '👁️ On';
+                content.style.display = 'block';
+            } else {
+                btn.classList.remove('active');
+                btn.innerHTML = '👁️ Off';
+                content.style.display = 'none';
+            }
+        }
+
+        function updateCoachFeedback(evalData) {
+            const quality = evalData.quality || 'unknown';
+            const cpl = evalData.cpl || 0;
+            const bestMove = evalData.best_move;
+            
+            // Track for accuracy calculation
+            game.moveQualities.push({ quality, cpl });
+            game.totalCPL += cpl;
+            
+            // Show feedback section
+            document.getElementById('coach-waiting').style.display = 'none';
+            document.getElementById('coach-feedback').style.display = 'block';
+            
+            // Quality icons and colors
+            const qualityData = {
+                'best': { icon: '🌟', text: 'Best Move!', color: '#81B64C' },
+                'excellent': { icon: '✨', text: 'Excellent', color: '#96BC4B' },
+                'good': { icon: '👍', text: 'Good', color: '#8BC34A' },
+                'inaccuracy': { icon: '⚠️', text: 'Inaccuracy', color: '#F7C631' },
+                'mistake': { icon: '❌', text: 'Mistake', color: '#FFA459' },
+                'blunder': { icon: '💥', text: 'Blunder', color: '#FF6B6B' },
+                'unknown': { icon: '❓', text: 'Unknown', color: '#888' }
+            };
+            
+            const data = qualityData[quality] || qualityData['unknown'];
+            
+            // Update quality display
+            const iconEl = document.getElementById('quality-icon');
+            iconEl.textContent = data.icon;
+            iconEl.style.animation = 'none';
+            setTimeout(() => iconEl.style.animation = 'qualityPop 0.4s ease-out', 10);
+            
+            const labelEl = document.getElementById('quality-label');
+            labelEl.textContent = data.text;
+            labelEl.className = 'quality-label ' + quality;
+            
+            const cplEl = document.getElementById('quality-cpl');
+            if (quality === 'best') {
+                cplEl.textContent = 'Perfect! Engine agrees.';
+            } else if (cpl > 0) {
+                cplEl.textContent = `${cpl} centipawn loss`;
+            } else {
+                cplEl.textContent = 'Solid move';
+            }
+            
+            // Update coach comment
+            const comments = getCoachComment(quality, cpl, bestMove);
+            document.getElementById('coach-comment').innerHTML = `
+                <span class="tip-label">💡 Coach Says</span>
+                ${comments}
+            `;
+            
+            // Update accuracy display
+            updateAccuracyDisplay();
+        }
+
+        function getCoachComment(quality, cpl, bestMove) {
+            const comments = {
+                'best': [
+                    "Perfect! That's exactly what I would play.",
+                    "Brilliant! You found the best move.",
+                    "Excellent calculation! Top engine choice.",
+                    "Outstanding! You're playing like a grandmaster."
+                ],
+                'excellent': [
+                    "Great move! Very close to the best.",
+                    "Solid choice. Keep up the good work!",
+                    "Nice! You're playing accurately.",
+                    "Well played! Strong positional understanding."
+                ],
+                'good': [
+                    "Good move. Keeps you in the game.",
+                    "Reasonable choice. The position is still fine.",
+                    "That works! Keep looking for opportunities.",
+                    "Decent move. Consider looking deeper next time."
+                ],
+                'inaccuracy': [
+                    "Slight inaccuracy. A better move was available.",
+                    "Not the best. Try to calculate a bit deeper.",
+                    "This gives away some advantage. Look for tactics!",
+                    "Consider piece activity and king safety more."
+                ],
+                'mistake': [
+                    "Mistake! This significantly worsens your position.",
+                    "Oops! That move hurts. Check for threats first.",
+                    "This loses material or position. Slow down!",
+                    "Big error. Always check opponent's threats."
+                ],
+                'blunder': [
+                    "Blunder! Major oversight. Take your time!",
+                    "Critical error! Always look for checks and captures.",
+                    "That's a serious mistake. Stay focused!",
+                    "Game-changing blunder. Review the position carefully."
+                ]
+            };
+            
+            const pool = comments[quality] || ["Keep playing!"];
+            let comment = pool[Math.floor(Math.random() * pool.length)];
+            
+            if (bestMove && (quality === 'inaccuracy' || quality === 'mistake' || quality === 'blunder')) {
+                comment += ` Better was: <strong>${bestMove}</strong>`;
+            }
+            
+            return comment;
+        }
+
+        function updateAccuracyDisplay() {
+            const moves = game.moveQualities.length;
+            if (moves === 0) return;
+            
+            // Calculate accuracy using Chess.com-style formula
+            const avgCPL = game.totalCPL / moves;
+            const accuracy = Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * avgCPL) - 3.1668));
+            
+            // Update ring
+            const circumference = 125.6; // 2 * PI * 20
+            const offset = circumference - (accuracy / 100) * circumference;
+            document.getElementById('accuracy-progress').style.strokeDashoffset = offset;
+            
+            // Update text
+            document.getElementById('accuracy-value').textContent = accuracy.toFixed(0) + '%';
+            document.getElementById('accuracy-moves').textContent = `${moves} move${moves !== 1 ? 's' : ''} analyzed`;
+            
+            // Color based on accuracy
+            const progressEl = document.getElementById('accuracy-progress');
+            if (accuracy >= 90) {
+                progressEl.style.stroke = '#81B64C';
+            } else if (accuracy >= 70) {
+                progressEl.style.stroke = '#8BC34A';
+            } else if (accuracy >= 50) {
+                progressEl.style.stroke = '#F7C631';
+            } else {
+                progressEl.style.stroke = '#FF6B6B';
+            }
+        }
+
+        function resetCoach() {
+            game.moveQualities = [];
+            game.totalCPL = 0;
+            document.getElementById('coach-waiting').style.display = 'block';
+            document.getElementById('coach-feedback').style.display = 'none';
+            document.getElementById('accuracy-progress').style.strokeDashoffset = 125.6;
+            document.getElementById('accuracy-value').textContent = '--';
+            document.getElementById('accuracy-moves').textContent = '0 moves analyzed';
+        }
+
+        function updateMovesList() {
+            const list = document.getElementById('moves-list');
+            let html = '';
+            for (let i = 0; i < game.moveHistory.length; i += 2) {
+                const moveNum = Math.floor(i / 2) + 1;
+                const whiteMove = game.moveHistory[i]?.uci || '';
+                const blackMove = game.moveHistory[i + 1]?.uci || '';
+                html += `<div class="move-row">
+                    <span class="move-number">${moveNum}.</span>
+                    <span class="move">${whiteMove}</span>
+                    <span class="move">${blackMove}</span>
+                </div>`;
+            }
+            list.innerHTML = html;
+            list.scrollTop = list.scrollHeight;
+        }
+
+        function updateStatus(text) {
+            document.getElementById('game-status').textContent = text;
+        }
+
+        function showGameOver(result) {
+            const icon = document.getElementById('result-icon');
+            const text = document.getElementById('result-text');
+            const reason = document.getElementById('result-reason');
+            
+            // Normalize result - handle server strings like "White wins by checkmate"
+            let normalizedResult = result;
+            let resultReason = '';
+            
+            if (typeof result === 'string') {
+                const resultLower = result.toLowerCase();
+                const playerIsWhite = game.playerColor === 'white';
+                
+                console.log('Game Over Debug:', { result, resultLower, playerIsWhite, playerColor: game.playerColor });
+                
+                // Check for checkmate or win condition
+                if (resultLower.includes('checkmate') || resultLower.includes('wins')) {
+                    resultReason = result;
+                    // Determine if player won or lost based on color mentioned
+                    if (resultLower.includes('white')) {
+                        normalizedResult = playerIsWhite ? 'win' : 'lose';
+                    } else if (resultLower.includes('black')) {
+                        normalizedResult = playerIsWhite ? 'lose' : 'win';
+                    }
+                } 
+                // Check for draw conditions
+                else if (resultLower.includes('draw') || resultLower.includes('stalemate') || 
+                         resultLower.includes('insufficient') || resultLower.includes('repetition') ||
+                         resultLower.includes('fifty')) {
+                    normalizedResult = 'draw';
+                    resultReason = result;
+                }
+                // Already normalized values
+                else if (result === 'win' || result === 'lose' || result === 'draw') {
+                    normalizedResult = result;
+                }
+            }
+            
+            console.log('Normalized result:', normalizedResult);
+
+            if (normalizedResult === 'win') {
+                icon.textContent = '🏆';
+                text.textContent = 'You Win!';
+                reason.textContent = resultReason.includes('checkmate') ? 'Checkmate!' : 'Great game!';
+            } else if (normalizedResult === 'lose') {
+                icon.textContent = '😔';
+                text.textContent = 'You Lost';
+                reason.textContent = resultReason.includes('checkmate') ? 'Checkmate!' : 'Better luck next time!';
+            } else if (normalizedResult === 'draw') {
+                icon.textContent = '🤝';
+                text.textContent = 'Draw';
+                reason.textContent = resultReason || 'Game drawn';
+            } else {
+                // Unknown result - treat as game over without specific outcome
+                icon.textContent = '🏁';
+                text.textContent = 'Game Over';
+                reason.textContent = typeof result === 'string' ? result : 'Game ended';
+            }
+
+            document.getElementById('final-moves').textContent = game.moveHistory.length;
+            document.getElementById('game-over-modal').classList.add('active');
+
+            if (game.gameMode !== 'multiplayer') {
+                saveGameResult(normalizedResult);
+            }
+        }
+
+        async function saveGameResult(result) {
+            try {
+                // Update stats
+                await fetch('/api/stats/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        result,
+                        moves: game.moveHistory.length,
+                        opponent_level: game.engineSkill
+                    })
+                });
+                
+                // Save game data for AI Clone learning
+                await fetch('/api/games', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        moves: game.moveHistory,
+                        result: result,
+                        player_color: game.playerColor,
+                        opponent_level: game.engineSkill,
+                        move_evaluations: game.moveQualities || []
+                    })
+                });
+                
+                loadStats();
+            } catch (err) {
+                console.error('Error saving stats:', err);
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                const stats = data.stats || {};
+
+                document.getElementById('user-rating').textContent = stats.rating || 1200;
+                document.getElementById('player-rating-label').textContent = stats.rating || 1200;
+                document.getElementById('games-played').textContent = stats.games_played || 0;
+                document.getElementById('wins-count').textContent = stats.wins || 0;
+                document.getElementById('losses-count').textContent = stats.losses || 0;
+
+                const total = stats.games_played || 0;
+                const winRate = total > 0 ? Math.round((stats.wins / total) * 100) : 0;
+                document.getElementById('win-rate').textContent = winRate + '%';
+            } catch (err) {
+                console.error('Error loading stats:', err);
+            }
+        }
+
+        // Feature Banner
+        function closeBanner() {
+            const banner = document.getElementById('feature-banner');
+            banner.style.animation = 'fadeSlideOut 0.3s ease-out forwards';
+            setTimeout(() => {
+                banner.style.display = 'none';
+                localStorage.setItem('walkieBannerClosed', 'true');
+            }, 300);
+        }
+
+        // Check if banner was previously closed
+        if (localStorage.getItem('walkieBannerClosed') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const banner = document.getElementById('feature-banner');
+                if (banner) banner.style.display = 'none';
+            });
+        }
+
+        // Modal functions
+        async function openGameModeModal(mode = 'engine') {
+            // Check clone unlock status first
+            await checkCloneUnlock();
+            selectGameModeByValue(mode);
+            document.getElementById('game-mode-modal').classList.add('active');
+        }
+
+        function closeGameModeModal() {
+            document.getElementById('game-mode-modal').classList.remove('active');
+        }
+
+        function closeGameOverModal() {
+            document.getElementById('game-over-modal').classList.remove('active');
+        }
+
+        function openSettingsModal() {
+            document.getElementById('settings-modal').classList.add('active');
+        }
+
+        function closeSettingsModal() {
+            settings.showCoords = document.getElementById('show-coords').checked;
+            settings.showLegalMoves = document.getElementById('show-legal-moves').checked;
+            settings.highlightLastMove = document.getElementById('highlight-last-move').checked;
+            settings.moveSounds = document.getElementById('move-sounds').checked;
+            
+            document.getElementById('settings-modal').classList.remove('active');
+            renderPieces();
+        }
+
+        // selectGameMode is defined earlier with clone lock check
+
+        function selectGameModeByValue(mode) {
+            const el = document.querySelector(`.mode-option[data-mode="${mode}"]`);
+            if (el) selectGameMode(el);
+        }
+
+        function selectColor(btn) {
+            document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        }
+
+        function updateSkillDisplay() {
+            const val = document.getElementById('skill-slider').value;
+            document.getElementById('skill-display').textContent = 'Level ' + val;
+        }
+
+        async function startGame() {
+            const modeEl = document.querySelector('.mode-option.selected');
+            const mode = modeEl ? modeEl.dataset.mode : 'engine';
+            
+            // Handle online mode differently
+            if (mode === 'online') {
+                startOnlineGame();
+                return;
+            }
+            
+            const colorBtn = document.querySelector('.color-btn.selected');
+            let color = colorBtn ? colorBtn.dataset.color : 'white';
+            if (color === 'random') color = Math.random() < 0.5 ? 'white' : 'black';
+
+            const skill = parseInt(document.getElementById('skill-slider').value);
+
+            // Get time control
+            const timeEl = document.querySelector('.time-option.selected');
+            const timeControl = timeEl ? parseInt(timeEl.dataset.time) : 600;
+
+            // Stop any existing timer
+            stopTimer();
+
+            game = {
+                fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+                playerColor: color,
+                engineSkill: skill,
+                selectedSquare: null,
+                legalMoves: [],
+                moveHistory: [],
+                isPlayerTurn: mode === 'multiplayer' || color === 'white',
+                gameOver: false,
+                flipped: color === 'black' && mode !== 'multiplayer',
+                gameMode: mode,
+                timeControl: timeControl,
+                playerTime: timeControl,
+                opponentTime: timeControl,
+                capturedByWhite: [],
+                capturedByBlack: [],
+                coachEnabled: game.coachEnabled !== undefined ? game.coachEnabled : true,
+                moveQualities: [],
+                totalCPL: 0
+            };
+
+            closeGameModeModal();
+            createBoard();
+            document.getElementById('moves-list').innerHTML = '';
+            document.getElementById('white-captured').innerHTML = '';
+            document.getElementById('black-captured').innerHTML = '';
+            updateTimerDisplay();
+            resetCoach();
+            
+            // Update opponent display
+            if (mode === 'multiplayer') {
+                document.getElementById('opponent-name').textContent = 'Player 2';
+                document.getElementById('engine-level').textContent = '👥 Local';
+                updateStatus('⬜ White to move');
+            } else if (mode === 'clone') {
+                document.getElementById('opponent-name').textContent = 'Your Clone';
+                document.getElementById('engine-level').textContent = '🧬 AI Clone';
+                updateStatus('♟ Your turn - make a move!');
+            } else {
+                document.getElementById('opponent-name').textContent = 'Stockfish AI';
+                document.getElementById('engine-level').textContent = 'Level ' + skill;
+                
+                if (color === 'black') {
+                    updateStatus('🤔 AI is thinking...');
+                    await getEngineFirstMove();
+                } else {
+                    updateStatus('♟ Your turn - make a move!');
+                }
+            }
+
+            // Start timer if time control is set
+            if (timeControl > 0) {
+                startTimer();
+            }
+
+            try {
+                await fetch('/api/new_game', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ color, skill, mode })
+                });
+            } catch (err) {
+                console.error('Error starting game:', err);
+            }
+        }
+
+        async function getEngineFirstMove() {
+            try {
+                const res = await fetch('/api/engine_move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fen: game.fen, skill: game.engineSkill })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    game.moveHistory.push({
+                        from: data.move.slice(0,2),
+                        to: data.move.slice(2,4),
+                        uci: data.move
+                    });
+                    game.fen = data.fen;
+                    game.isPlayerTurn = true;
+                    updateMovesList();
+                    renderPieces();
+                    updateCapturedPieces();
+                    updateTimerDisplay();
+                    updateStatus('♟ Your turn');
+                }
+            } catch (err) {
+                console.error('Error getting engine move:', err);
+                game.isPlayerTurn = true;
+                updateStatus('♟ Your turn');
+            }
+        }
+
+        function flipBoard() {
+            game.flipped = !game.flipped;
+            createBoard();
+        }
+
+        function undoMove() {
+            if (game.moveHistory.length >= 2) {
+                alert('Undo is not yet fully implemented');
+            }
+        }
+
+        function resignGame() {
+            if (game.gameOver || game.moveHistory.length === 0) {
+                alert('No active game to resign!');
+                return;
+            }
+
+            if (!confirm('Are you sure you want to resign?')) return;
+
+            game.gameOver = true;
+            stopTimer();
+            
+            // Handle online resignation
+            if (game.gameMode === 'online') {
+                resignOnline();
+                return;
+            }
+            
+            if (game.gameMode === 'multiplayer') {
+                const turn = game.fen.split(' ')[1];
+                const loser = turn === 'w' ? 'White' : 'Black';
+                updateStatus(`🏳️ ${loser} resigned!`);
+                // In multiplayer, show draw modal instead
+                document.getElementById('result-icon').textContent = '🏳️';
+                document.getElementById('result-text').textContent = `${loser} Resigned`;
+                document.getElementById('result-reason').textContent = 'Game over by resignation';
+            } else {
+                showGameOver('lose');
+            }
+
+            document.getElementById('game-over-modal').classList.add('active');
+        }
+
+        // ============== TIMER FUNCTIONS ==============
+
+        function formatTime(seconds) {
+            if (seconds <= 0) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateTimerDisplay() {
+            const playerTimer = document.getElementById('player-timer');
+            const opponentTimer = document.getElementById('opponent-timer');
+            const mobilePlayerTimer = document.getElementById('mobile-player-timer');
+            const mobileOpponentTimer = document.getElementById('mobile-opponent-timer');
+            
+            const playerTimeStr = formatTime(game.playerTime);
+            const opponentTimeStr = formatTime(game.opponentTime);
+            
+            playerTimer.textContent = playerTimeStr;
+            opponentTimer.textContent = opponentTimeStr;
+            
+            // Update mobile timers
+            if (mobilePlayerTimer) mobilePlayerTimer.textContent = playerTimeStr;
+            if (mobileOpponentTimer) mobileOpponentTimer.textContent = opponentTimeStr;
+
+            // Low time warning
+            playerTimer.classList.toggle('low-time', game.playerTime <= 30 && game.playerTime > 0);
+            opponentTimer.classList.toggle('low-time', game.opponentTime <= 30 && game.opponentTime > 0);
+
+            // Active indicator
+            if (game.gameMode === 'multiplayer') {
+                const turn = game.fen.split(' ')[1];
+                const isPlayerActive = turn === (game.flipped ? 'b' : 'w');
+                playerTimer.classList.toggle('active', isPlayerActive);
+                opponentTimer.classList.toggle('active', !isPlayerActive);
+                if (mobilePlayerTimer) mobilePlayerTimer.classList.toggle('active', isPlayerActive);
+                if (mobileOpponentTimer) mobileOpponentTimer.classList.toggle('active', !isPlayerActive);
+            } else {
+                playerTimer.classList.toggle('active', game.isPlayerTurn);
+                opponentTimer.classList.toggle('active', !game.isPlayerTurn);
+                if (mobilePlayerTimer) mobilePlayerTimer.classList.toggle('active', game.isPlayerTurn);
+                if (mobileOpponentTimer) mobileOpponentTimer.classList.toggle('active', !game.isPlayerTurn);
+            }
+        }
+
+        function startTimer() {
+            if (game.timeControl === 0) return; // No time limit
+            
+            stopTimer();
+            timerInterval = setInterval(() => {
+                if (game.gameOver) {
+                    stopTimer();
+                    return;
+                }
+
+                if (game.gameMode === 'multiplayer') {
+                    const turn = game.fen.split(' ')[1];
+                    if (turn === 'w') {
+                        game.playerTime--;
+                    } else {
+                        game.opponentTime--;
+                    }
+                } else {
+                    if (game.isPlayerTurn) {
+                        game.playerTime--;
+                    } else {
+                        game.opponentTime--;
+                    }
+                }
+
+                updateTimerDisplay();
+
+                // Check for timeout
+                if (game.playerTime <= 0) {
+                    stopTimer();
+                    game.gameOver = true;
+                    showGameOver('lose');
+                } else if (game.opponentTime <= 0) {
+                    stopTimer();
+                    game.gameOver = true;
+                    showGameOver('win');
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+
+        function selectTimeControl(el) {
+            document.querySelectorAll('.time-option').forEach(o => o.classList.remove('selected'));
+            el.classList.add('selected');
+        }
+
+        // ============== CAPTURED PIECES ==============
+
+        const PIECE_VALUES = { 'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0 };
+
+        function updateCapturedPieces() {
+            const startPieces = {
+                white: { P: 8, N: 2, B: 2, R: 2, Q: 1, K: 1 },
+                black: { p: 8, n: 2, b: 2, r: 2, q: 1, k: 1 }
+            };
+
+            const currentPieces = { white: {}, black: {} };
+            const pieces = parseFEN(game.fen);
+
+            // Count current pieces
+            for (const piece of Object.values(pieces)) {
+                if (piece === piece.toUpperCase()) {
+                    currentPieces.white[piece] = (currentPieces.white[piece] || 0) + 1;
+                } else {
+                    currentPieces.black[piece] = (currentPieces.black[piece] || 0) + 1;
+                }
+            }
+
+            // Calculate captured pieces
+            game.capturedByWhite = [];
+            game.capturedByBlack = [];
+
+            for (const [piece, count] of Object.entries(startPieces.black)) {
+                const current = currentPieces.black[piece] || 0;
+                for (let i = 0; i < count - current; i++) {
+                    game.capturedByWhite.push(piece);
+                }
+            }
+
+            for (const [piece, count] of Object.entries(startPieces.white)) {
+                const current = currentPieces.white[piece] || 0;
+                for (let i = 0; i < count - current; i++) {
+                    game.capturedByBlack.push(piece);
+                }
+            }
+
+            // Calculate material difference
+            let whiteMaterial = game.capturedByWhite.reduce((sum, p) => sum + PIECE_VALUES[p.toLowerCase()], 0);
+            let blackMaterial = game.capturedByBlack.reduce((sum, p) => sum + PIECE_VALUES[p.toLowerCase()], 0);
+            let diff = whiteMaterial - blackMaterial;
+
+            // Render captured pieces
+            const whiteCapt = document.getElementById('white-captured');
+            const blackCapt = document.getElementById('black-captured');
+            const mobileWhiteCapt = document.getElementById('mobile-white-captured');
+            const mobileBlackCapt = document.getElementById('mobile-black-captured');
+
+            const whiteCapturedHTML = game.capturedByWhite.map(p => 
+                `<img src="${PIECE_IMAGES[p]}" alt="${p}">`
+            ).join('') + (diff > 0 ? `<span class="material-diff">+${diff}</span>` : '');
+
+            const blackCapturedHTML = game.capturedByBlack.map(p => 
+                `<img src="${PIECE_IMAGES[p]}" alt="${p}">`
+            ).join('') + (diff < 0 ? `<span class="material-diff">+${Math.abs(diff)}</span>` : '');
+
+            whiteCapt.innerHTML = whiteCapturedHTML;
+            blackCapt.innerHTML = blackCapturedHTML;
+            
+            // Update mobile captured displays (text only for compactness)
+            if (mobileWhiteCapt) {
+                mobileWhiteCapt.innerHTML = game.capturedByWhite.map(p => PIECE_UNICODE[p] || '').join('') + 
+                    (diff > 0 ? ` +${diff}` : '');
+            }
+            if (mobileBlackCapt) {
+                mobileBlackCapt.innerHTML = game.capturedByBlack.map(p => PIECE_UNICODE[p] || '').join('') + 
+                    (diff < 0 ? ` +${Math.abs(diff)}` : '');
+            }
+        }
+
+        // ============== SAVE/RESUME GAME ==============
+
+        function saveCurrentGame() {
+            if (game.moveHistory.length === 0) {
+                alert('No game to save!');
+                return;
+            }
+
+            const savedGames = JSON.parse(localStorage.getItem('aigambit_saved_games') || '[]');
+            
+            const gameData = {
+                id: Date.now(),
+                date: new Date().toLocaleString(),
+                fen: game.fen,
+                moveHistory: game.moveHistory,
+                playerColor: game.playerColor,
+                engineSkill: game.engineSkill,
+                gameMode: game.gameMode,
+                timeControl: game.timeControl,
+                playerTime: game.playerTime,
+                opponentTime: game.opponentTime,
+                moves: game.moveHistory.length
+            };
+
+            savedGames.unshift(gameData);
+            // Keep only last 10 saved games
+            if (savedGames.length > 10) savedGames.pop();
+
+            localStorage.setItem('aigambit_saved_games', JSON.stringify(savedGames));
+            alert('Game saved! You can resume it later.');
+        }
+
+        function openSavedGamesModal() {
+            const savedGames = JSON.parse(localStorage.getItem('aigambit_saved_games') || '[]');
+            const list = document.getElementById('saved-games-list');
+
+            if (savedGames.length === 0) {
+                list.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">No saved games</p>';
+            } else {
+                list.innerHTML = savedGames.map(g => `
+                    <div class="saved-game-item">
+                        <div class="saved-game-info">
+                            <div class="saved-game-moves">${g.moves} moves - ${g.gameMode}</div>
+                            <div class="saved-game-date">${g.date}</div>
+                        </div>
+                        <div class="saved-game-actions">
+                            <button class="btn-resume" onclick="resumeGame(${g.id})">Resume</button>
+                            <button class="btn-delete" onclick="deleteSavedGame(${g.id})">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            document.getElementById('saved-games-modal').classList.add('active');
+        }
+
+        function closeSavedGamesModal() {
+            document.getElementById('saved-games-modal').classList.remove('active');
+        }
+
+        function resumeGame(gameId) {
+            const savedGames = JSON.parse(localStorage.getItem('aigambit_saved_games') || '[]');
+            const savedGame = savedGames.find(g => g.id === gameId);
+
+            if (!savedGame) {
+                alert('Game not found!');
+                return;
+            }
+
+            game = {
+                fen: savedGame.fen,
+                playerColor: savedGame.playerColor,
+                engineSkill: savedGame.engineSkill,
+                selectedSquare: null,
+                legalMoves: [],
+                moveHistory: savedGame.moveHistory,
+                isPlayerTurn: true,
+                gameOver: false,
+                flipped: savedGame.playerColor === 'black',
+                gameMode: savedGame.gameMode,
+                timeControl: savedGame.timeControl,
+                playerTime: savedGame.playerTime,
+                opponentTime: savedGame.opponentTime,
+                capturedByWhite: [],
+                capturedByBlack: []
+            };
+
+            closeSavedGamesModal();
+            createBoard();
+            updateMovesList();
+            updateCapturedPieces();
+            updateTimerDisplay();
+
+            if (game.timeControl > 0) {
+                startTimer();
+            }
+
+            updateStatus('♟ Game resumed - Your turn!');
+
+            // Remove from saved games after resuming
+            const updatedGames = savedGames.filter(g => g.id !== gameId);
+            localStorage.setItem('aigambit_saved_games', JSON.stringify(updatedGames));
+        }
+
+        function deleteSavedGame(gameId) {
+            if (!confirm('Delete this saved game?')) return;
+
+            const savedGames = JSON.parse(localStorage.getItem('aigambit_saved_games') || '[]');
+            const updatedGames = savedGames.filter(g => g.id !== gameId);
+            localStorage.setItem('aigambit_saved_games', JSON.stringify(updatedGames));
+
+            openSavedGamesModal(); // Refresh the list
+        }
+
+        // ============== ONLINE PLAY FUNCTIONS ==============
+        
+        function initSocket() {
+            if (onlineGame.socket && onlineGame.connected) return;
+            
+            onlineGame.socket = io();
+            
+            onlineGame.socket.on('connect', () => {
+                console.log('Connected to server');
+                onlineGame.connected = true;
+            });
+            
+            onlineGame.socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                onlineGame.connected = false;
+                if (onlineGame.isSearching) {
+                    hideSearchingOverlay();
+                    alert('Connection lost. Please try again.');
+                }
+            });
+            
+            onlineGame.socket.on('waiting_for_opponent', (data) => {
+                console.log('Waiting for opponent...');
+            });
+            
+            onlineGame.socket.on('game_found', (data) => {
+                console.log('Game found!', data);
+                onlineGame.isSearching = false;
+                onlineGame.gameId = data.game_id;
+                onlineGame.opponentName = data.opponent;
+                
+                hideSearchingOverlay();
+                setupOnlineGame(data);
+            });
+            
+            onlineGame.socket.on('opponent_move', (data) => {
+                console.log('Opponent moved:', data);
+                handleOpponentMove(data);
+            });
+            
+            onlineGame.socket.on('move_confirmed', (data) => {
+                game.playerTime = game.playerColor === 'white' ? data.white_time : data.black_time;
+                game.opponentTime = game.playerColor === 'white' ? data.black_time : data.white_time;
+                updateTimerDisplay();
+            });
+            
+            onlineGame.socket.on('opponent_disconnected', (data) => {
+                stopTimer();
+                game.gameOver = true;
+                showGameOverModal('win', 'Opponent disconnected');
+            });
+            
+            onlineGame.socket.on('game_over', (data) => {
+                stopTimer();
+                game.gameOver = true;
+                game.fen = data.fen || game.fen;
+                renderPieces();
+                showGameOverModal(data.result, data.reason);
+            });
+            
+            onlineGame.socket.on('draw_offered', (data) => {
+                document.getElementById('draw-offerer').textContent = data.from;
+                document.getElementById('draw-offer-modal').classList.add('active');
+            });
+            
+            onlineGame.socket.on('draw_declined', () => {
+                updateStatus('Draw offer declined');
+            });
+            
+            onlineGame.socket.on('search_cancelled', () => {
+                onlineGame.isSearching = false;
+                hideSearchingOverlay();
+            });
+            
+            onlineGame.socket.on('error', (data) => {
+                console.error('Socket error:', data.message);
+            });
+        }
+        
+        function startOnlineGame() {
+            const usernameInput = document.getElementById('online-username');
+            const username = usernameInput.value.trim() || 'Anonymous';
+            
+            if (username.length < 2) {
+                alert('Please enter a username (at least 2 characters)');
+                usernameInput.focus();
+                return;
+            }
+            
+            // Save username
+            localStorage.setItem('aigambit_username', username);
+            onlineGame.username = username;
+            
+            // Get time control
+            const timeEl = document.querySelector('.time-option.selected');
+            const timeControl = timeEl ? parseInt(timeEl.dataset.time) : 600;
+            
+            closeGameModeModal();
+            
+            // Initialize socket if needed
+            initSocket();
+            
+            // Show searching overlay
+            showSearchingOverlay(timeControl);
+            
+            // Emit find_game event
+            onlineGame.isSearching = true;
+            onlineGame.socket.emit('find_game', {
+                username: username,
+                time_control: timeControl
+            });
+        }
+        
+        function showSearchingOverlay(timeControl) {
+            const overlay = document.getElementById('searching-overlay');
+            const timeText = document.getElementById('searching-time');
+            
+            if (timeControl === 0) {
+                timeText.textContent = 'No time limit';
+            } else if (timeControl <= 60) {
+                timeText.textContent = `${timeControl / 60} min • Bullet`;
+            } else if (timeControl <= 300) {
+                timeText.textContent = `${timeControl / 60} min • Blitz`;
+            } else {
+                timeText.textContent = `${timeControl / 60} min • Rapid`;
+            }
+            
+            overlay.style.display = 'flex';
+        }
+        
+        function hideSearchingOverlay() {
+            document.getElementById('searching-overlay').style.display = 'none';
+        }
+        
+        function cancelSearch() {
+            if (onlineGame.socket && onlineGame.isSearching) {
+                onlineGame.socket.emit('cancel_search');
+            }
+            onlineGame.isSearching = false;
+            hideSearchingOverlay();
+        }
+        
+        function setupOnlineGame(data) {
+            const color = data.color;
+            const timeControl = data.time_control;
+            
+            stopTimer();
+            
+            game = {
+                fen: data.fen,
+                playerColor: color,
+                engineSkill: 0,
+                selectedSquare: null,
+                legalMoves: [],
+                moveHistory: [],
+                isPlayerTurn: color === 'white',
+                gameOver: false,
+                flipped: color === 'black',
+                gameMode: 'online',
+                timeControl: timeControl,
+                playerTime: timeControl,
+                opponentTime: timeControl,
+                capturedByWhite: [],
+                capturedByBlack: []
+            };
+            
+            createBoard();
+            document.getElementById('moves-list').innerHTML = '';
+            document.getElementById('white-captured').innerHTML = '';
+            document.getElementById('black-captured').innerHTML = '';
+            updateTimerDisplay();
+            
+            // Update opponent display
+            document.getElementById('opponent-name').textContent = data.opponent;
+            document.getElementById('engine-level').textContent = '🌐 Online';
+            
+            if (color === 'white') {
+                updateStatus('♟ Your turn - make a move!');
+            } else {
+                updateStatus('⏳ Waiting for opponent...');
+            }
+            
+            if (timeControl > 0) {
+                startTimer();
+            }
+            
+            // Show voice chat button for online games
+            console.log('Setting up online game - showing voice chat button');
+            showVoiceChat();
+            
+            // Initialize voice chat (microphone)
+            initVoiceChat();
+        }
+        
+        function handleOpponentMove(data) {
+            game.fen = data.fen;
+            game.isPlayerTurn = true;
+            game.playerTime = game.playerColor === 'white' ? data.white_time : data.black_time;
+            game.opponentTime = game.playerColor === 'white' ? data.black_time : data.white_time;
+            
+            // Add move to history
+            game.moveHistory.push(data.move);
+            updateMovesList();
+            
+            // Update board
+            renderPieces();
+            updateCapturedPieces();
+            updateTimerDisplay();
+            
+            updateStatus('♟ Your turn - make a move!');
+        }
+        
+        function sendOnlineMove(move) {
+            if (onlineGame.socket && onlineGame.gameId) {
+                onlineGame.socket.emit('online_move', {
+                    game_id: onlineGame.gameId,
+                    move: move
+                });
+            }
+        }
+        
+        function resignOnline() {
+            if (onlineGame.socket && onlineGame.gameId) {
+                onlineGame.socket.emit('resign_online');
+            }
+        }
+        
+        function offerDraw() {
+            if (onlineGame.socket && onlineGame.gameId) {
+                onlineGame.socket.emit('offer_draw');
+                updateStatus('Draw offer sent...');
+            }
+        }
+        
+        function acceptDrawOffer() {
+            if (onlineGame.socket) {
+                onlineGame.socket.emit('accept_draw');
+            }
+            document.getElementById('draw-offer-modal').classList.remove('active');
+        }
+        
+        function declineDrawOffer() {
+            if (onlineGame.socket) {
+                onlineGame.socket.emit('decline_draw');
+            }
+            document.getElementById('draw-offer-modal').classList.remove('active');
+        }
+        
+        function showGameOverModal(result, reason) {
+            const icon = document.getElementById('result-icon');
+            const text = document.getElementById('result-text');
+            const reasonEl = document.getElementById('result-reason');
+            
+            if (result === 'win') {
+                icon.textContent = '🏆';
+                text.textContent = 'You Win!';
+            } else if (result === 'loss') {
+                icon.textContent = '😔';
+                text.textContent = 'You Lost';
+            } else {
+                icon.textContent = '🤝';
+                text.textContent = 'Draw';
+            }
+            
+            reasonEl.textContent = reason;
+            document.getElementById('game-over-modal').classList.add('active');
+            
+            // Hide voice chat when game ends
+            hideVoiceChat();
+        }
+
+        // ============== VOICE CHAT FUNCTIONS ==============
+        
+        function showVoiceChat() {
+            document.getElementById('voice-chat-container').classList.add('active');
+            updateVoiceStatus('Connecting...', 'disconnected');
+        }
+        
+        function hideVoiceChat() {
+            document.getElementById('voice-chat-container').classList.remove('active');
+            cleanupVoiceChat();
+        }
+        
+        function updateVoiceStatus(text, state) {
+            const statusEl = document.getElementById('voice-status');
+            const textEl = document.getElementById('voice-status-text');
+            const indicator = document.getElementById('voice-indicator');
+            
+            textEl.textContent = text;
+            indicator.className = 'voice-indicator ' + state;
+            
+            statusEl.classList.add('show');
+            setTimeout(() => statusEl.classList.remove('show'), 2000);
+        }
+        
+        async function initVoiceChat() {
+            // Always show the button first
+            updateVoiceStatus('Requesting mic...', 'disconnected');
+            
+            try {
+                // Get microphone access
+                voiceChat.localStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }, 
+                    video: false 
+                });
+                
+                // Unmuted by default (call-style)
+                voiceChat.localStream.getAudioTracks().forEach(track => {
+                    track.enabled = true;
+                });
+                voiceChat.isMuted = false;
+                
+                // Create peer connection
+                const config = {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                };
+                
+                voiceChat.peerConnection = new RTCPeerConnection(config);
+                
+                // Add local stream to connection
+                voiceChat.localStream.getTracks().forEach(track => {
+                    voiceChat.peerConnection.addTrack(track, voiceChat.localStream);
+                });
+                
+                // Handle incoming audio
+                voiceChat.peerConnection.ontrack = (event) => {
+                    const remoteAudio = document.getElementById('remote-audio');
+                    remoteAudio.srcObject = event.streams[0];
+                    updateVoiceStatus('Voice connected!', 'connected');
+                    voiceChat.isConnected = true;
+                };
+                
+                // Handle ICE candidates
+                voiceChat.peerConnection.onicecandidate = (event) => {
+                    if (event.candidate && onlineGame.socket) {
+                        onlineGame.socket.emit('voice_ice_candidate', {
+                            game_id: onlineGame.gameId,
+                            candidate: event.candidate
+                        });
+                    }
+                };
+                
+                // Handle connection state changes
+                voiceChat.peerConnection.onconnectionstatechange = () => {
+                    const state = voiceChat.peerConnection.connectionState;
+                    if (state === 'connected') {
+                        updateVoiceStatus('Voice connected!', 'connected');
+                        voiceChat.isConnected = true;
+                    } else if (state === 'disconnected' || state === 'failed') {
+                        updateVoiceStatus('Voice disconnected', 'disconnected');
+                        voiceChat.isConnected = false;
+                    }
+                };
+                
+                // Set up socket listeners for signaling
+                setupVoiceSignaling();
+                
+                // If we're the one who should initiate (white player)
+                if (game.playerColor === 'white') {
+                    createVoiceOffer();
+                }
+                
+                showVoiceChat();
+                updateVoiceStatus('Mic on - Click to mute', 'connected');
+                updateMuteButton();
+                
+            } catch (err) {
+                console.error('Failed to initialize voice chat:', err);
+                updateVoiceStatus('Mic access denied', 'disconnected');
+            }
+        }
+        
+        function setupVoiceSignaling() {
+            if (!onlineGame.socket) return;
+            
+            onlineGame.socket.on('voice_offer', async (data) => {
+                try {
+                    await voiceChat.peerConnection.setRemoteDescription(
+                        new RTCSessionDescription(data.offer)
+                    );
+                    
+                    const answer = await voiceChat.peerConnection.createAnswer();
+                    await voiceChat.peerConnection.setLocalDescription(answer);
+                    
+                    onlineGame.socket.emit('voice_answer', {
+                        game_id: onlineGame.gameId,
+                        answer: answer
+                    });
+                } catch (err) {
+                    console.error('Error handling voice offer:', err);
+                }
+            });
+            
+            onlineGame.socket.on('voice_answer', async (data) => {
+                try {
+                    await voiceChat.peerConnection.setRemoteDescription(
+                        new RTCSessionDescription(data.answer)
+                    );
+                } catch (err) {
+                    console.error('Error handling voice answer:', err);
+                }
+            });
+            
+            onlineGame.socket.on('voice_ice_candidate', async (data) => {
+                try {
+                    if (voiceChat.peerConnection.remoteDescription) {
+                        await voiceChat.peerConnection.addIceCandidate(
+                            new RTCIceCandidate(data.candidate)
+                        );
+                    } else {
+                        voiceChat.iceCandidates.push(data.candidate);
+                    }
+                } catch (err) {
+                    console.error('Error adding ICE candidate:', err);
+                }
+            });
+            
+            onlineGame.socket.on('opponent_talking', (data) => {
+                const btn = document.getElementById('walkie-btn');
+                if (data.talking) {
+                    btn.classList.add('receiving');
+                    updateVoiceStatus(`${onlineGame.opponentName} is talking...`, 'talking');
+                } else {
+                    btn.classList.remove('receiving');
+                }
+            });
+        }
+        
+        async function createVoiceOffer() {
+            try {
+                const offer = await voiceChat.peerConnection.createOffer();
+                await voiceChat.peerConnection.setLocalDescription(offer);
+                
+                onlineGame.socket.emit('voice_offer', {
+                    game_id: onlineGame.gameId,
+                    offer: offer
+                });
+            } catch (err) {
+                console.error('Error creating voice offer:', err);
+            }
+        }
+        
+        function toggleMute() {
+            if (!voiceChat.localStream) return;
+            
+            voiceChat.isMuted = !voiceChat.isMuted;
+            
+            voiceChat.localStream.getAudioTracks().forEach(track => {
+                track.enabled = !voiceChat.isMuted;
+            });
+            
+            updateMuteButton();
+            
+            // Notify opponent
+            if (onlineGame.socket) {
+                onlineGame.socket.emit('talking_status', {
+                    game_id: onlineGame.gameId,
+                    talking: !voiceChat.isMuted
+                });
+            }
+        }
+        
+        function updateMuteButton() {
+            const btn = document.getElementById('walkie-btn');
+            if (voiceChat.isMuted) {
+                btn.classList.remove('active');
+                btn.innerHTML = '🔇';
+                updateVoiceStatus('Muted - Click to unmute', 'connected');
+            } else {
+                btn.classList.add('active');
+                btn.innerHTML = '🎤';
+                updateVoiceStatus('Mic on - Click to mute', 'connected');
+            }
+        }
+        
+        function startTalking() {
+            if (!voiceChat.localStream || voiceChat.isTalking) return;
+            
+            voiceChat.isTalking = true;
+            voiceChat.localStream.getAudioTracks().forEach(track => {
+                track.enabled = true;
+            });
+            
+            const btn = document.getElementById('walkie-btn');
+            btn.classList.add('active');
+            updateVoiceStatus('Transmitting...', 'talking');
+            
+            // Notify opponent
+            if (onlineGame.socket) {
+                onlineGame.socket.emit('talking_status', {
+                    game_id: onlineGame.gameId,
+                    talking: true
+                });
+            }
+        }
+        
+        function stopTalking() {
+            if (!voiceChat.localStream || !voiceChat.isTalking) return;
+            
+            voiceChat.isTalking = false;
+            voiceChat.localStream.getAudioTracks().forEach(track => {
+                track.enabled = false;
+            });
+            
+            const btn = document.getElementById('walkie-btn');
+            btn.classList.remove('active');
+            
+            // Notify opponent
+            if (onlineGame.socket) {
+                onlineGame.socket.emit('talking_status', {
+                    game_id: onlineGame.gameId,
+                    talking: false
+                });
+            }
+        }
+        
+        function cleanupVoiceChat() {
+            if (voiceChat.localStream) {
+                voiceChat.localStream.getTracks().forEach(track => track.stop());
+                voiceChat.localStream = null;
+            }
+            
+            if (voiceChat.peerConnection) {
+                voiceChat.peerConnection.close();
+                voiceChat.peerConnection = null;
+            }
+            
+            voiceChat.isTalking = false;
+            voiceChat.isConnected = false;
+            voiceChat.iceCandidates = [];
+        }
+
+        // ==================== CHESS NEWSFEED ====================
+        let allNewsItems = [];
+        let currentNewsFilter = 'all';
+
+        // Chess news sources and sample data
+        const chessNewsSources = [
+            { name: 'Chess.com', icon: '♟️' },
+            { name: 'FIDE', icon: '🏆' },
+            { name: 'Chess24', icon: '🎯' },
+            { name: 'Lichess', icon: '🐴' }
+        ];
+
+        // Fetch news from multiple sources
+        async function fetchChessNews() {
+            const container = document.getElementById('news-container');
+            container.innerHTML = `
+                <div class="news-loading">
+                    <div class="spinner"></div>
+                    <p>Loading chess news...</p>
+                </div>
+            `;
+
+            try {
+                // Try to fetch from a news API - using a chess-related search
+                const response = await fetch('https://newsdata.io/api/1/news?apikey=pub_63aborealhowitworks&q=chess&language=en&category=sports');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.results && data.results.length > 0) {
+                        allNewsItems = data.results.map(item => ({
+                            title: item.title,
+                            description: item.description || 'Click to read more about this chess story.',
+                            url: item.link,
+                            image: item.image_url,
+                            source: item.source_id || 'Chess News',
+                            date: item.pubDate ? new Date(item.pubDate).toLocaleDateString() : 'Recent',
+                            category: categorizeNews(item.title + ' ' + (item.description || ''))
+                        }));
+                        renderNews();
+                        return;
+                    }
+                }
+                // Fallback to curated chess news
+                loadFallbackNews();
+            } catch (error) {
+                console.log('Using fallback news:', error);
+                loadFallbackNews();
+            }
+        }
+
+        function categorizeNews(text) {
+            const lower = text.toLowerCase();
+            if (lower.includes('tournament') || lower.includes('championship') || lower.includes('olympiad') || lower.includes('candidates')) return 'tournaments';
+            if (lower.includes('carlsen') || lower.includes('ding') || lower.includes('nakamura') || lower.includes('grandmaster') || lower.includes('gm ')) return 'players';
+            if (lower.includes('analysis') || lower.includes('game') || lower.includes('opening') || lower.includes('endgame') || lower.includes('strategy')) return 'analysis';
+            if (lower.includes('learn') || lower.includes('beginner') || lower.includes('tutorial') || lower.includes('lesson') || lower.includes('improve')) return 'learning';
+            return 'all';
+        }
+
+        function loadFallbackNews() {
+            // Curated chess news items
+            allNewsItems = [
+                {
+                    title: "Magnus Carlsen Dominates Norway Chess 2024",
+                    description: "The former World Champion showcases brilliant play in his home tournament, defeating top-10 players with signature endgame technique.",
+                    url: "https://chess.com",
+                    image: null,
+                    source: "Chess.com",
+                    date: "Today",
+                    category: "players"
+                },
+                {
+                    title: "FIDE Candidates Tournament 2025 Announced",
+                    description: "The next Candidates tournament will take place in Toronto, Canada. Eight players will compete for the right to challenge the World Champion.",
+                    url: "https://fide.com",
+                    image: null,
+                    source: "FIDE",
+                    date: "Yesterday",
+                    category: "tournaments"
+                },
+                {
+                    title: "Understanding the King's Indian Defense",
+                    description: "A comprehensive guide to one of the most dynamic chess openings. Learn the key ideas, plans, and typical pawn structures.",
+                    url: "https://chess.com/article/view/kings-indian-defense",
+                    image: null,
+                    source: "Chess.com",
+                    date: "2 days ago",
+                    category: "learning"
+                },
+                {
+                    title: "Hikaru Nakamura Breaks Streaming Records",
+                    description: "The American super-GM continues to dominate both online chess and streaming, reaching new milestone for chess content viewership.",
+                    url: "https://chess.com",
+                    image: null,
+                    source: "Chess24",
+                    date: "3 days ago",
+                    category: "players"
+                },
+                {
+                    title: "Brilliant Queen Sacrifice in World Rapid",
+                    description: "An in-depth analysis of the stunning queen sacrifice that decided a crucial game. See how calculation and intuition combine at the highest level.",
+                    url: "https://lichess.org",
+                    image: null,
+                    source: "Lichess",
+                    date: "4 days ago",
+                    category: "analysis"
+                },
+                {
+                    title: "Chess Olympiad 2024 Preview",
+                    description: "Teams from 190 countries will compete in the world's largest chess event. Here's everything you need to know about the upcoming Olympiad.",
+                    url: "https://fide.com",
+                    image: null,
+                    source: "FIDE",
+                    date: "5 days ago",
+                    category: "tournaments"
+                },
+                {
+                    title: "5 Endgame Patterns Every Player Must Know",
+                    description: "Master these essential endgame techniques to convert winning positions and save drawn games. From basic to intermediate level.",
+                    url: "https://chess.com",
+                    image: null,
+                    source: "Chess.com",
+                    date: "1 week ago",
+                    category: "learning"
+                },
+                {
+                    title: "Rising Stars: Young Prodigies Making Waves",
+                    description: "Meet the next generation of chess champions. These teenage grandmasters are already competing with the world's best.",
+                    url: "https://chess24.com",
+                    image: null,
+                    source: "Chess24",
+                    date: "1 week ago",
+                    category: "players"
+                }
+            ];
+            renderNews();
+        }
+
+        function renderNews() {
+            const container = document.getElementById('news-container');
+            const filteredNews = currentNewsFilter === 'all' 
+                ? allNewsItems 
+                : allNewsItems.filter(item => item.category === currentNewsFilter);
+
+            if (filteredNews.length === 0) {
+                container.innerHTML = `
+                    <div class="news-error">
+                        <div class="error-icon">📭</div>
+                        <p>No news found for this category.</p>
+                        <button onclick="filterNews('all')">Show All News</button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filteredNews.map(item => `
+                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="news-card">
+                    ${item.image 
+                        ? `<img src="${item.image}" alt="" class="news-image" onerror="this.outerHTML='<div class=news-image-placeholder>♟️</div>'">`
+                        : `<div class="news-image-placeholder">${getSourceIcon(item.source)}</div>`
+                    }
+                    <div class="news-content">
+                        <div class="news-source">${item.source}</div>
+                        <h3 class="news-title-text">${item.title}</h3>
+                        <p class="news-description">${item.description}</p>
+                        <div class="news-meta">
+                            <span class="news-date">📅 ${item.date}</span>
+                            <span class="news-read-more">Read more →</span>
+                        </div>
+                    </div>
+                </a>
+            `).join('');
+        }
+
+        function getSourceIcon(source) {
+            const icons = {
+                'Chess.com': '♟️',
+                'FIDE': '🏆',
+                'Chess24': '🎯',
+                'Lichess': '🐴'
+            };
+            return icons[source] || '♟️';
+        }
+
+        function filterNews(category) {
+            currentNewsFilter = category;
+            
+            // Update active tab
+            document.querySelectorAll('.news-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.textContent.toLowerCase().includes(category) || 
+                    (category === 'all' && tab.textContent.includes('All'))) {
+                    tab.classList.add('active');
+                }
+            });
+            
+            renderNews();
+        }
+
+        function refreshNews() {
+            const btn = document.querySelector('.newsfeed-refresh');
+            btn.classList.add('loading');
+            
+            fetchChessNews().finally(() => {
+                setTimeout(() => {
+                    btn.classList.remove('loading');
+                }, 500);
+            });
+        }
+
+        // Load news on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Delay news loading slightly to prioritize game loading
+            setTimeout(fetchChessNews, 1000);
+        });
+    </script>
+</body>
+</html>

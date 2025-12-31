@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Stats - AIgambit.com</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #312e2b;
+            --bg-darker: #272522;
+            --bg-darkest: #1a1816;
+            --bg-panel: #262421;
+            --green-primary: #81b64c;
+            --green-dark: #5d8c3a;
+            --text-primary: #ffffff;
+            --text-secondary: #b0ada8;
+            --board-light: #ebecd0;
+            --board-dark: #739552;
+        }
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: var(--bg-darkest);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-darker);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #3d3a36;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            font-size: 24px;
+            font-weight: 700;
+            color: white;
+        }
+        .logo-icon { font-size: 28px; }
+        .logo-accent { color: var(--green-primary); }
+        .nav-links {
+            display: flex;
+            gap: 8px;
+        }
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .nav-links a:hover, .nav-links a.active {
+            color: white;
+            background: var(--bg-dark);
+        }
+        .user-rating {
+            background: var(--bg-dark);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        /* Main Content */
+        .main-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Page Header */
+        .page-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .page-header h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+        .page-subtitle {
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+
+        /* Stats Overview */
+        .stats-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .stat-card {
+            background: var(--bg-panel);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+        }
+        .stat-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--green-primary);
+        }
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        /* Section */
+        .review-section {
+            background: var(--bg-panel);
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 32px;
+        }
+        .review-section h2 {
+            font-size: 24px;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #3d3a36;
+        }
+
+        /* Win Rate Chart */
+        .win-rate-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .chart-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .chart-label {
+            width: 80px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        .chart-bar {
+            flex: 1;
+            height: 32px;
+            background: var(--bg-dark);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .chart-fill {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            border-radius: 8px;
+            transition: width 1s ease;
+        }
+        .chart-fill.wins { background: var(--green-primary); }
+        .chart-fill.losses { background: #ca3431; }
+        .chart-fill.draws { background: #6b5b00; }
+
+        /* Achievements Grid */
+        .achievements-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        .achievement-card {
+            background: var(--bg-dark);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            transition: all 0.2s;
+        }
+        .achievement-card:hover {
+            transform: scale(1.02);
+        }
+        .achievement-card.locked {
+            opacity: 0.5;
+        }
+        .achievement-icon {
+            font-size: 40px;
+            flex-shrink: 0;
+        }
+        .achievement-info h4 {
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+        .achievement-info p {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+        .achievement-badge {
+            margin-left: auto;
+            background: var(--green-primary);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .achievement-card.locked .achievement-badge {
+            background: var(--bg-darker);
+            color: var(--text-secondary);
+        }
+
+        /* Games List */
+        .games-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .game-item {
+            background: var(--bg-dark);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: all 0.2s;
+        }
+        .game-item:hover {
+            background: var(--bg-darker);
+            transform: translateX(8px);
+        }
+        .game-result {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .game-result.win { background: var(--green-primary); }
+        .game-result.loss { background: #ca3431; }
+        .game-result.draw { background: #6b5b00; }
+        .game-details {
+            flex: 1;
+        }
+        .game-details h4 {
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+        .game-details p {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+        .game-rating-change {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .game-rating-change.positive { color: var(--green-primary); }
+        .game-rating-change.negative { color: #ca3431; }
+
+        /* Rating Chart */
+        .rating-chart {
+            height: 200px;
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            padding: 20px;
+            background: var(--bg-dark);
+            border-radius: 12px;
+        }
+        .rating-bar {
+            flex: 1;
+            background: var(--green-primary);
+            border-radius: 4px 4px 0 0;
+            min-height: 20px;
+            position: relative;
+            transition: height 1s ease;
+        }
+        .rating-bar:hover {
+            background: #93c85d;
+        }
+        .rating-bar .tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-darkest);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .rating-bar:hover .tooltip { opacity: 1; }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 48px;
+            color: var(--text-secondary);
+        }
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        .empty-state h3 {
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        .btn-primary {
+            display: inline-block;
+            background: var(--green-primary);
+            border: none;
+            color: white;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+            margin-top: 16px;
+        }
+        .btn-primary:hover { background: var(--green-dark); }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .header {
+                padding: 8px 12px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .logo { font-size: 18px; }
+            .logo-icon { font-size: 22px; }
+            .nav-links {
+                order: 3;
+                width: 100%;
+                justify-content: center;
+            }
+            .nav-links a { padding: 6px 10px; font-size: 13px; }
+            .user-rating { padding: 6px 10px; font-size: 12px; }
+            .main-content { padding: 16px 12px; }
+            .page-header h1 { font-size: 24px; }
+            .page-subtitle { font-size: 14px; }
+            .stats-grid { 
+                grid-template-columns: repeat(2, 1fr); 
+                gap: 10px; 
+            }
+            .stat-card { padding: 16px; }
+            .stat-value { font-size: 28px; }
+            .stat-label { font-size: 12px; }
+            .stat-sublabel { font-size: 11px; }
+            .content-grid { 
+                grid-template-columns: 1fr; 
+                gap: 16px; 
+            }
+            .section { padding: 16px; }
+            .section h2 { font-size: 18px; }
+            .chart-container { height: 180px; }
+            .games-list { max-height: 300px; }
+            .game-item { padding: 10px; }
+            .game-result { width: 36px; height: 36px; font-size: 16px; }
+            .game-opponent { font-size: 13px; }
+            .game-date { font-size: 10px; }
+            .game-moves { font-size: 11px; }
+            .achievements-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .achievement { padding: 12px; }
+            .achievement-icon { font-size: 28px; }
+            .achievement-name { font-size: 11px; }
+            .empty-state { padding: 24px; }
+            .empty-icon { font-size: 40px; }
+            .empty-message { font-size: 14px; }
+            .btn-primary { padding: 12px 24px; font-size: 14px; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .achievements-grid { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 400px) {
+            .header { padding: 6px 8px; }
+            .logo { font-size: 16px; }
+            .nav-links a { padding: 5px 8px; font-size: 12px; }
+            .stat-value { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <a href="/" class="logo">
+            <span class="logo-icon">♟</span>
+            <span>AI<span class="logo-accent">gambit</span></span>
+        </a>
+        <nav class="nav-links">
+            <a href="/">Play</a>
+            <a href="/learn">Learn</a>
+            <a href="/review" class="active">Review</a>
+        </nav>
+        <div class="user-rating">⭐ <span id="user-rating">1200</span></div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="page-header">
+            <h1>📊 Your Progress</h1>
+            <p class="page-subtitle">Track your improvement and analyze your games</p>
+        </div>
+
+        <!-- Stats Overview -->
+        <div class="stats-overview" id="stats-overview">
+            <div class="stat-card">
+                <div class="stat-icon">⭐</div>
+                <div class="stat-value" id="rating-stat">1200</div>
+                <div class="stat-label">Rating</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🎮</div>
+                <div class="stat-value" id="games-stat">0</div>
+                <div class="stat-label">Games Played</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🏆</div>
+                <div class="stat-value" id="wins-stat">0</div>
+                <div class="stat-label">Wins</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">❌</div>
+                <div class="stat-value" id="losses-stat">0</div>
+                <div class="stat-label">Losses</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🤝</div>
+                <div class="stat-value" id="draws-stat">0</div>
+                <div class="stat-label">Draws</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📈</div>
+                <div class="stat-value" id="winrate-stat">0%</div>
+                <div class="stat-label">Win Rate</div>
+            </div>
+        </div>
+
+        <!-- Win Rate Chart -->
+        <div class="review-section">
+            <h2>📈 Performance Breakdown</h2>
+            <div class="win-rate-chart" id="win-rate-chart">
+                <div class="chart-bar-container">
+                    <span class="chart-label">Wins</span>
+                    <div class="chart-bar">
+                        <div class="chart-fill wins" id="wins-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="chart-bar-container">
+                    <span class="chart-label">Losses</span>
+                    <div class="chart-bar">
+                        <div class="chart-fill losses" id="losses-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="chart-bar-container">
+                    <span class="chart-label">Draws</span>
+                    <div class="chart-bar">
+                        <div class="chart-fill draws" id="draws-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Achievements -->
+        <div class="review-section">
+            <h2>🏅 Achievements</h2>
+            <div class="achievements-grid" id="achievements-grid">
+                <!-- Achievements will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Rating History -->
+        <div class="review-section">
+            <h2>📉 Rating History</h2>
+            <div class="rating-chart" id="rating-chart">
+                <!-- Rating bars will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Recent Games -->
+        <div class="review-section">
+            <h2>🎯 Recent Games</h2>
+            <div class="games-list" id="games-list">
+                <!-- Games will be loaded here -->
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Achievement definitions
+        const achievements = [
+            { id: 'first_win', icon: '🏆', name: 'First Victory', desc: 'Win your first game', check: s => s.wins >= 1 },
+            { id: 'ten_games', icon: '🎮', name: 'Getting Started', desc: 'Play 10 games', check: s => s.games_played >= 10 },
+            { id: 'five_wins', icon: '⭐', name: 'Rising Star', desc: 'Win 5 games', check: s => s.wins >= 5 },
+            { id: 'rating_1300', icon: '📈', name: 'Climbing Up', desc: 'Reach 1300 rating', check: s => s.rating >= 1300 },
+            { id: 'rating_1500', icon: '🚀', name: 'Advanced', desc: 'Reach 1500 rating', check: s => s.rating >= 1500 },
+            { id: 'ten_wins', icon: '💪', name: 'Warrior', desc: 'Win 10 games', check: s => s.wins >= 10 },
+            { id: 'win_streak', icon: '🔥', name: 'On Fire', desc: 'Win 3 games in a row', check: s => s.win_streak >= 3 },
+            { id: 'fifty_games', icon: '🎓', name: 'Dedicated', desc: 'Play 50 games', check: s => s.games_played >= 50 },
+        ];
+
+        // Load stats from API
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                const stats = data.stats || {};
+                
+                const wins = stats.wins || 0;
+                const losses = stats.losses || 0;
+                const draws = stats.draws || 0;
+                const total = stats.games_played || (wins + losses + draws);
+                const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
+                
+                // Update stat cards
+                document.getElementById('rating-stat').textContent = stats.rating || 1200;
+                document.getElementById('user-rating').textContent = stats.rating || 1200;
+                document.getElementById('games-stat').textContent = total;
+                document.getElementById('wins-stat').textContent = wins;
+                document.getElementById('losses-stat').textContent = losses;
+                document.getElementById('draws-stat').textContent = draws;
+                document.getElementById('winrate-stat').textContent = winRate + '%';
+                
+                // Update win rate bars
+                if (total > 0) {
+                    document.getElementById('wins-bar').style.width = (wins/total*100) + '%';
+                    document.getElementById('wins-bar').textContent = wins;
+                    document.getElementById('losses-bar').style.width = (losses/total*100) + '%';
+                    document.getElementById('losses-bar').textContent = losses;
+                    document.getElementById('draws-bar').style.width = (draws/total*100) + '%';
+                    document.getElementById('draws-bar').textContent = draws;
+                }
+                
+                // Update achievements
+                displayAchievements({ ...stats, games_played: total, win_streak: stats.current_streak || stats.win_streak || 0 });
+                
+                // Update rating history
+                displayRatingHistory(stats.rating_history || [stats.rating || 1200]);
+                
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Load recent games
+        async function loadGames() {
+            try {
+                const response = await fetch('/api/games');
+                const data = await response.json();
+                displayGames(data.games || []);
+            } catch (error) {
+                console.error('Error loading games:', error);
+                displayGames([]);
+            }
+        }
+
+        function displayAchievements(stats) {
+            const grid = document.getElementById('achievements-grid');
+            grid.innerHTML = achievements.map(ach => {
+                const unlocked = ach.check(stats);
+                return `
+                    <div class="achievement-card ${unlocked ? '' : 'locked'}">
+                        <div class="achievement-icon">${ach.icon}</div>
+                        <div class="achievement-info">
+                            <h4>${ach.name}</h4>
+                            <p>${ach.desc}</p>
+                        </div>
+                        <span class="achievement-badge">${unlocked ? '✓' : '🔒'}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function displayRatingHistory(history) {
+            const chart = document.getElementById('rating-chart');
+            if (!history || history.length === 0) {
+                chart.innerHTML = '<div class="empty-state"><p>Play some games to see your rating history!</p></div>';
+                return;
+            }
+            
+            const min = Math.min(...history) - 50;
+            const max = Math.max(...history) + 50;
+            const range = max - min;
+            
+            // Show last 10 ratings
+            const recent = history.slice(-10);
+            
+            chart.innerHTML = recent.map((rating, i) => {
+                const height = range > 0 ? ((rating - min) / range) * 100 : 50;
+                return `
+                    <div class="rating-bar" style="height: ${height}%">
+                        <span class="tooltip">Game ${history.length - recent.length + i + 1}: ${rating}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function displayGames(games) {
+            const list = document.getElementById('games-list');
+            
+            if (!games || games.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🎮</div>
+                        <h3>No games yet</h3>
+                        <p>Start playing to see your game history!</p>
+                        <a href="/" class="btn-primary">Play Now</a>
+                    </div>
+                `;
+                return;
+            }
+            
+            list.innerHTML = games.slice(-10).reverse().map(game => {
+                const resultClass = game.result === 'win' ? 'win' : game.result === 'loss' ? 'loss' : 'draw';
+                const resultIcon = game.result === 'win' ? 'W' : game.result === 'loss' ? 'L' : 'D';
+                const ratingChange = game.rating_change || 0;
+                const changeClass = ratingChange > 0 ? 'positive' : ratingChange < 0 ? 'negative' : '';
+                const changeText = ratingChange > 0 ? `+${ratingChange}` : ratingChange;
+                
+                return `
+                    <div class="game-item">
+                        <div class="game-result ${resultClass}">${resultIcon}</div>
+                        <div class="game-details">
+                            <h4>vs ${game.opponent || 'Stockfish'}</h4>
+                            <p>${game.moves || 0} moves • ${game.date || 'Today'}</p>
+                        </div>
+                        <span class="game-rating-change ${changeClass}">${changeText}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Initialize
+        loadStats();
+        loadGames();
+    </script>
+</body>
+</html>

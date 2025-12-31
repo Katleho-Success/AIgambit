@@ -1,0 +1,86 @@
+2025-12-19 18:58:58,302 - JARVIS - INFO - Imported existing <module 'comtypes.gen' from 'C:\\Users\\katle\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\LocalCache\\local-packages\\Python311\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-12-19 18:58:58,302 - JARVIS - INFO - Using writeable comtypes cache directory: 'C:\Users\katle\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\comtypes\gen'
+2025-12-19 18:58:58,634 - JARVIS - INFO - Could not import comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4: Typelib different than module
+2025-12-19 18:58:58,655 - JARVIS - INFO - # Generating comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4
+2025-12-19 18:58:58,831 - JARVIS - INFO - # Generating comtypes.gen.SpeechLib
+2025-12-19 18:59:00,037 - JARVIS - INFO - Voice synthesis initialized
+2025-12-19 18:59:00,197 - JARVIS - INFO - Task scheduler started
+2025-12-19 18:59:00,197 - JARVIS - INFO - JARVIS System Manager initialized
+2025-12-19 18:59:00,197 - JARVIS - INFO - System Manager initialized - full control enabled
+2025-12-19 18:59:00,197 - JARVIS - INFO - JARVIS v2.0.0 initialized
+2025-12-19 18:59:10,638 - JARVIS - INFO - Stockfish loaded from: C:\Stockfish\stockfish\stockfish-windows-x86-64.exe
+2025-12-19 18:59:10,638 - JARVIS - INFO - Self-Learning Chess AI initialized
+2025-12-19 18:59:10,718 - JARVIS - INFO - Notification sent: Chess AI Online
+2025-12-19 18:59:10,931 - JARVIS - INFO - JARVIS: Good evening, sir. JARVIS is online and all systems are operational.
+2025-12-19 18:59:11,061 - JARVIS - INFO - Notification sent: JARVIS Online
+2025-12-19 18:59:11,417 - JARVIS - INFO - System monitoring started
+2025-12-19 18:59:11,425 - JARVIS - INFO - JARVIS activated
+2025-12-19 18:59:11,530 - JARVIS - INFO - Notification sent: AIgambit Online
+2025-12-19 18:59:12,819 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-19 18:59:13,138 - JARVIS - INFO - Notification sent: High Memory Usage: 89.1%
+2025-12-19 18:59:41,134 - JARVIS - INFO - JARVIS: JARVIS online. All systems operational.
+2025-12-19 19:12:42,070 - JARVIS - INFO - Notification sent: High Memory Usage: 89.6%
+2025-12-19 19:27:41,587 - JARVIS - INFO - Notification sent: High CPU Usage: 98.6%
+2025-12-19 19:41:53,211 - JARVIS - INFO - Notification sent: Permission Request: self_play_training
+2025-12-19 19:41:53,714 - JARVIS - INFO - JARVIS: Starting 10 self-play training games. Check pending permissions to approve.
+2025-12-19 19:42:01,942 - JARVIS - INFO - Notification sent: Permission Approved
+2025-12-19 19:42:01,999 - JARVIS - INFO - Notification sent: Self-Play Starting
+2025-12-19 19:42:41,224 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-19 19:46:19,409 - JARVIS - INFO - Notification sent: High Memory Usage: 85.2%
+2025-12-19 19:53:34,672 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-19 19:57:43,202 - JARVIS - INFO - Notification sent: High Memory Usage: 85.1%
+2025-12-19 19:58:29,373 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-19 22:47:00,019 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-19 22:47:01,858 - JARVIS - INFO - Notification sent: High Memory Usage: 89.8%
+2025-12-19 22:48:42,813 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-19 23:48:41,949 - JARVIS - INFO - Notification sent: High Memory Usage: 88.3%
+2025-12-19 23:49:13,373 - JARVIS - INFO - Notification sent: High CPU Usage: 91.0%
+2025-12-19 23:53:08,491 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-19 23:58:06,785 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 00:00:37,322 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-20 00:07:32,461 - JARVIS - INFO - Model saved successfully
+2025-12-20 00:07:32,563 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 00:07:32,628 - JARVIS - INFO - Notification sent: Self-Play Progress
+2025-12-20 00:14:36,290 - JARVIS - INFO - Notification sent: High CPU Usage: 96.7%
+2025-12-20 00:15:39,974 - JARVIS - INFO - Notification sent: High Memory Usage: 85.8%
+2025-12-20 00:21:29,320 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 00:28:36,810 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-20 00:37:45,013 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 00:40:00,012 - JARVIS - INFO - Notification sent: High CPU Usage: 94.6%
+2025-12-20 00:53:14,138 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 00:54:30,796 - JARVIS - INFO - Notification sent: High Memory Usage: 85.4%
+2025-12-20 00:57:37,282 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-20 01:04:52,730 - JARVIS - INFO - Notification sent: High Memory Usage: 85.6%
+2025-12-20 01:11:37,169 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-20 01:12:35,818 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 01:22:11,480 - JARVIS - INFO - Model saved successfully
+2025-12-20 01:22:11,712 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 01:22:11,781 - JARVIS - INFO - Notification sent: Self-Play Progress
+2025-12-20 01:22:18,833 - JARVIS - INFO - Model saved successfully
+2025-12-20 01:22:18,966 - JARVIS - INFO - Notification sent: Self-Play Complete
+2025-12-20 01:22:19,010 - JARVIS - INFO - Notification sent: Self-Play Complete
+2025-12-20 01:22:19,071 - JARVIS - INFO - Notification sent: Action Complete: self_play_training
+2025-12-20 01:22:19,106 - JARVIS - INFO - JARVIS: Permission granted. Executing action.
+2025-12-20 01:22:20,036 - JARVIS - INFO - Notification sent: Permission Approved
+2025-12-20 01:22:20,063 - JARVIS - INFO - Notification sent: Self-Play Starting
+2025-12-20 02:44:05,684 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-20 02:44:07,530 - JARVIS - INFO - Notification sent: High Memory Usage: 89.6%
+2025-12-20 02:45:08,620 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 02:54:12,875 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 02:54:30,157 - JARVIS - INFO - Notification sent: High Memory Usage: 86.9%
+2025-12-20 02:59:41,223 - JARVIS - INFO - Notification sent: High CPU Usage: 98.3%
+2025-12-20 03:11:35,904 - JARVIS - INFO - Notification sent: High CPU Usage: 90.5%
+2025-12-20 03:11:36,684 - JARVIS - INFO - Notification sent: High Memory Usage: 87.1%
+2025-12-20 03:13:33,001 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 03:22:00,620 - JARVIS - INFO - Notification sent: High CPU Usage: 92.1%
+2025-12-20 03:22:01,380 - JARVIS - INFO - Notification sent: High Memory Usage: 89.8%
+2025-12-20 03:25:42,075 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 11:31:14,556 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-20 11:31:17,555 - JARVIS - INFO - Notification sent: High Memory Usage: 90.6%
+2025-12-20 11:42:10,407 - JARVIS - INFO - Notification sent: High CPU Usage: 100.0%
+2025-12-20 11:42:41,766 - JARVIS - INFO - Notification sent: High Memory Usage: 85.2%
+2025-12-20 11:45:16,701 - JARVIS - INFO - Model saved successfully
+2025-12-20 11:45:17,445 - JARVIS - INFO - Notification sent: Game Learned
+2025-12-20 11:45:17,516 - JARVIS - INFO - Notification sent: Self-Play Progress
+2025-12-20 11:53:03,187 - JARVIS - INFO - Notification sent: High Memory Usage: 86.5%
+2025-12-20 11:53:35,295 - JARVIS - INFO - Notification sent: High CPU Usage: 97.9%

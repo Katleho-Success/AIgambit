@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIgambit.com - Master Chess with AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #312e2b;
+            --bg-darker: #272522;
+            --bg-darkest: #1a1816;
+            --bg-panel: #262421;
+            --green-primary: #81b64c;
+            --green-dark: #5d8c3a;
+            --green-light: #96c75a;
+            --text-primary: #ffffff;
+            --text-secondary: #b0ada8;
+            --board-light: #ebecd0;
+            --board-dark: #739552;
+        }
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: var(--bg-darkest);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-darker);
+            padding: 16px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #3d3a36;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            font-size: 26px;
+            font-weight: 700;
+            color: white;
+        }
+        .logo-icon { font-size: 32px; }
+        .logo-accent { color: var(--green-primary); }
+        .nav-links {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 10px 20px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .nav-links a:hover {
+            color: white;
+            background: var(--bg-dark);
+        }
+        .play-btn-header {
+            background: var(--green-primary);
+            color: white !important;
+            font-weight: 600;
+        }
+        .play-btn-header:hover {
+            background: var(--green-dark) !important;
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 120px 40px 80px;
+            background: linear-gradient(135deg, var(--bg-darkest) 0%, var(--bg-darker) 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(129, 182, 76, 0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .hero-content {
+            max-width: 1200px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 80px;
+            align-items: center;
+            z-index: 1;
+        }
+        .hero-text h1 {
+            font-size: 56px;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 24px;
+        }
+        .hero-text h1 span {
+            color: var(--green-primary);
+        }
+        .hero-text p {
+            font-size: 20px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 40px;
+        }
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 16px 32px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            border: none;
+        }
+        .btn-primary {
+            background: var(--green-primary);
+            color: white;
+        }
+        .btn-primary:hover {
+            background: var(--green-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(129, 182, 76, 0.3);
+        }
+        .btn-secondary {
+            background: var(--bg-panel);
+            color: white;
+            border: 2px solid #3d3a36;
+        }
+        .btn-secondary:hover {
+            background: var(--bg-dark);
+            border-color: var(--green-primary);
+        }
+
+        /* Chess Board Preview */
+        .hero-visual {
+            position: relative;
+        }
+        .chess-preview {
+            width: 100%;
+            max-width: 450px;
+            aspect-ratio: 1;
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+            transform: perspective(1000px) rotateY(-5deg) rotateX(5deg);
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: perspective(1000px) rotateY(-5deg) rotateX(5deg) translateY(0); }
+            50% { transform: perspective(1000px) rotateY(-5deg) rotateX(5deg) translateY(-10px); }
+        }
+        .square {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+        }
+        .square.light { background: var(--board-light); }
+        .square.dark { background: var(--board-dark); }
+
+        /* Features Section */
+        .features {
+            padding: 100px 40px;
+            background: var(--bg-darker);
+        }
+        .features-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section-title {
+            text-align: center;
+            font-size: 42px;
+            font-weight: 700;
+            margin-bottom: 60px;
+        }
+        .section-title span {
+            color: var(--green-primary);
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+        .feature-card {
+            background: var(--bg-panel);
+            padding: 40px;
+            border-radius: 16px;
+            border: 1px solid #3d3a36;
+            transition: all 0.3s;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--green-primary);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+        .feature-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        .feature-card h3 {
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+        .feature-card p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Game Modes Section */
+        .modes {
+            padding: 100px 40px;
+            background: var(--bg-darkest);
+        }
+        .modes-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .modes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+        .mode-card {
+            background: linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-darker) 100%);
+            padding: 30px;
+            border-radius: 16px;
+            border: 2px solid #3d3a36;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+        .mode-card:hover {
+            border-color: var(--green-primary);
+            transform: scale(1.02);
+        }
+        .mode-icon {
+            font-size: 56px;
+            margin-bottom: 16px;
+        }
+        .mode-card h3 {
+            font-size: 22px;
+            margin-bottom: 8px;
+        }
+        .mode-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Stats Preview */
+        .stats-section {
+            padding: 100px 40px;
+            background: var(--bg-darker);
+        }
+        .stats-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 30px;
+            margin-top: 50px;
+        }
+        .stat-item {
+            padding: 30px;
+        }
+        .stat-number {
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--green-primary);
+        }
+        .stat-label {
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+
+        /* CTA Section */
+        .cta {
+            padding: 100px 40px;
+            background: linear-gradient(135deg, var(--green-dark) 0%, var(--green-primary) 100%);
+            text-align: center;
+        }
+        .cta h2 {
+            font-size: 42px;
+            margin-bottom: 20px;
+        }
+        .cta p {
+            font-size: 20px;
+            opacity: 0.9;
+            margin-bottom: 40px;
+        }
+        .cta .btn {
+            background: white;
+            color: var(--green-dark);
+        }
+        .cta .btn:hover {
+            background: var(--bg-darkest);
+            color: white;
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--bg-darkest);
+            padding: 40px;
+            text-align: center;
+            border-top: 1px solid #3d3a36;
+        }
+        .footer p {
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            .hero-text h1 {
+                font-size: 40px;
+            }
+            .hero-buttons {
+                justify-content: center;
+            }
+            .chess-preview {
+                max-width: 350px;
+                margin: 0 auto;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (max-width: 600px) {
+            .header {
+                padding: 12px 20px;
+            }
+            .nav-links {
+                display: none;
+            }
+            .hero {
+                padding: 100px 20px 60px;
+            }
+            .hero-text h1 {
+                font-size: 32px;
+            }
+            .btn {
+                padding: 14px 24px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <a href="/" class="logo">
+            <span class="logo-icon">♔</span>
+            <span>AI<span class="logo-accent">gambit</span></span>
+        </a>
+        <nav class="nav-links">
+            <a href="/play">Play</a>
+            <a href="/learn">Learn</a>
+            <a href="/review">Review</a>
+            <a href="/play" class="play-btn-header">Play Now</a>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <h1>Master Chess with <span>AI-Powered</span> Coaching</h1>
+                <p>Play against Stockfish, analyze your games with precision, track your progress, and become a stronger player. Whether you're a beginner or advanced, AIgambit adapts to your skill level. You can now use a walkie talkie when playing online with another user. Try it!</p>
+                <div class="hero-buttons">
+                    <a href="/play" class="btn btn-primary">
+                        ♟️ Play Now
+                    </a>
+                    <a href="/learn" class="btn btn-secondary">
+                        📚 Learn Chess
+                    </a>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="chess-preview" id="chessPreview"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features">
+        <div class="features-container">
+            <h2 class="section-title">Why Choose <span>AIgambit</span>?</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>Stockfish AI Engine</h3>
+                    <p>Play against one of the world's strongest chess engines with adjustable difficulty levels from beginner to grandmaster.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Game Analysis</h3>
+                    <p>Get detailed analysis of every move, including accuracy scores, blunders detection, and improvement suggestions.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📈</div>
+                    <h3>Progress Tracking</h3>
+                    <p>Track your rating, win rate, streaks, and achievements. Watch your improvement over time with detailed statistics.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Real-Time Hints</h3>
+                    <p>Get move suggestions and tactical hints when you need them. Learn the best strategies from the AI coach.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Beautiful Interface</h3>
+                    <p>Enjoy a modern, responsive design that works perfectly on desktop and mobile devices.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏆</div>
+                    <h3>Achievements</h3>
+                    <p>Unlock achievements as you improve. From your first win to becoming a chess master.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Game Modes Section -->
+    <section class="modes">
+        <div class="modes-container">
+            <h2 class="section-title">Choose Your <span>Game Mode</span></h2>
+            <div class="modes-grid">
+                <a href="/play?mode=ai" class="mode-card">
+                    <div class="mode-icon">🤖</div>
+                    <h3>Play vs AI</h3>
+                    <p>Challenge Stockfish at your skill level</p>
+                </a>
+                <a href="/play?mode=online" class="mode-card">
+                    <div class="mode-icon">🌐</div>
+                    <h3>Play Online</h3>
+                    <p>Match with players worldwide</p>
+                </a>
+                <a href="/play?mode=friend" class="mode-card">
+                    <div class="mode-icon">👥</div>
+                    <h3>Play a Friend</h3>
+                    <p>Challenge your friends locally</p>
+                </a>
+                <a href="/learn" class="mode-card">
+                    <div class="mode-icon">📚</div>
+                    <h3>Learn</h3>
+                    <p>Improve with lessons and puzzles</p>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats-section">
+        <div class="stats-container">
+            <h2 class="section-title">Your <span>Journey</span> Awaits</h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-number">1200</div>
+                    <div class="stat-label">Starting Rating</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">∞</div>
+                    <div class="stat-label">Games to Play</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">15+</div>
+                    <div class="stat-label">AI Levels</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">24/7</div>
+                    <div class="stat-label">Always Available</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <h2>Ready to Improve Your Game?</h2>
+        <p>Start playing now and track your journey to chess mastery</p>
+        <a href="/play" class="btn">
+            ♔ Start Playing Free
+        </a>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>© 2025 AIgambit.com - Play Chess, Get Better</p>
+    </footer>
+
+    <!-- Chat UI -->
+    <div id="chat-container" style="border:1px solid #ccc; padding:10px; width:300px; margin:20px auto; background:#222; color:#fff; border-radius:8px;">
+      <div id="messages" style="height:200px; overflow-y:auto; border-bottom:1px solid #444; margin-bottom:10px;"></div>
+      <input id="message-input" type="text" placeholder="Type a message..." style="width:80%;">
+      <button onclick="sendMessage()">Send</button>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        // Chat functionality
+        var socket = io();
+        var messages = document.getElementById('messages');
+        var input = document.getElementById('message-input');
+
+        socket.on('message', function(msg) {
+            var div = document.createElement('div');
+            div.textContent = msg;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        function sendMessage() {
+            if(input.value.trim() !== '') {
+                socket.send(input.value);
+                input.value = '';
+            }
+        }
+        input.addEventListener('keyup', function(e) {
+            if(e.key === 'Enter') sendMessage();
+        });
+    </script>
+    <script>
+        // Generate chess board preview with starting position
+        const pieces = {
+            'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚', 'p': '♟',
+            'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔', 'P': '♙'
+        };
+        const startPosition = [
+            ['r','n','b','q','k','b','n','r'],
+            ['p','p','p','p','p','p','p','p'],
+            ['','','','','','','',''],
+            ['','','','','','','',''],
+            ['','','','','','','',''],
+            ['','','','','','','',''],
+            ['P','P','P','P','P','P','P','P'],
+            ['R','N','B','Q','K','B','N','R']
+        ];
+        const preview = document.getElementById('chessPreview');
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const square = document.createElement('div');
+                const isLight = (row + col) % 2 === 0;
+                square.className = `square ${isLight ? 'light' : 'dark'}`;
+                const piece = startPosition[row][col];
+                if (piece) {
+                    square.textContent = pieces[piece];
+                }
+                preview.appendChild(square);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "rating": 1185,
+  "games_played": 8,
+  "wins": 1,
+  "losses": 1,
+  "draws": 6,
+  "total_accuracy": 0,
+  "best_accuracy": 0,
+  "current_streak": 1,
+  "best_streak": 1,
+  "rating_history": [
+    {
+      "date": "2025-12-14",
+      "rating": 1200
+    },
+    {
+      "date": "2025-12-14 21:13",
+      "rating": 1198
+    },
+    {
+      "date": "2025-12-19 19:32",
+      "rating": 1196
+    },
+    {
+      "date": "2025-12-20 13:41",
+      "rating": 1194
+    },
+    {
+      "date": "2025-12-28 21:38",
+      "rating": 1192
+    },
+    {
+      "date": "2025-12-29 12:48",
+      "rating": 1190
+    },
+    {
+      "date": "2025-12-29 13:48",
+      "rating": 1188
+    },
+    {
+      "date": "2025-12-29 19:15",
+      "rating": 1169
+    },
+    {
+      "date": "2025-12-30 14:50",
+      "rating": 1185
+    }
+  ],
+  "achievements": [
+    "first_win"
+  ]
+}

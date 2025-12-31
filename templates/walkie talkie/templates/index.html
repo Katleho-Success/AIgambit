@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walkie Talkie</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #222; color: #fff; }
+        #chat-container { border:1px solid #444; padding:20px; width:350px; margin:40px auto; background:#333; border-radius:10px; }
+        #messages { height:220px; overflow-y:auto; border-bottom:1px solid #555; margin-bottom:12px; padding-bottom:8px; }
+        #message-input { width:75%; padding:8px; border-radius:4px; border:1px solid #555; }
+        #send-btn { padding:8px 16px; border-radius:4px; border:none; background:#4caf50; color:#fff; font-weight:bold; cursor:pointer; }
+        #send-btn:hover { background:#388e3c; }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <h2>Walkie Talkie</h2>
+        <div id="messages"></div>
+        <input id="message-input" type="text" placeholder="Type a message...">
+        <button id="send-btn" onclick="sendMessage()">Send</button>
+        <br><br>
+        <button id="mic-btn" style="background:#2196f3; color:#fff; border:none; border-radius:50%; width:56px; height:56px; font-size:24px; cursor:pointer;" title="Hold to talk">
+            <span id="mic-icon">🎤</span>
+        </button>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+        <!-- Add simple-peer for WebRTC abstraction -->
+        <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <script>
+        var socket = io();
+        var messages = document.getElementById('messages');
+        var input = document.getElementById('message-input');
+        var sendBtn = document.getElementById('send-btn');
+        var micBtn = document.getElementById('mic-btn');
+        var micIcon = document.getElementById('mic-icon');
+        var mediaStream = null;
+
+        // WebRTC variables
+        var peer = null;
+        var room = prompt('Enter private room name to talk:');
+        var signalingSocket = io('http://localhost:5001'); // signaling server
+
+        signalingSocket.emit('join', { room: room });
+
+        signalingSocket.on('signal', function(data) {
+            if (peer) {
+                peer.signal(data.signal);
+            }
+        });
+
+        function createPeer(stream) {
+            peer = new SimplePeer({
+                initiator: false,
+                trickle: false,
+                stream: stream
+            });
+
+            peer.on('signal', function(data) {
+                signalingSocket.emit('signal', { room: room, signal: data });
+            });
+
+            peer.on('stream', function(remoteStream) {
+                // Play remote audio
+                var audio = document.getElementById('remote-audio');
+                if (!audio) {
+                    audio = document.createElement('audio');
+                    audio.id = 'remote-audio';
+                    audio.autoplay = true;
+                    document.body.appendChild(audio);
+                }
+                audio.srcObject = remoteStream;
+            });
+        }
+
+        function createInitiatorPeer(stream) {
+            peer = new SimplePeer({
+                initiator: true,
+                trickle: false,
+                stream: stream
+            });
+
+            peer.on('signal', function(data) {
+                signalingSocket.emit('signal', { room: room, signal: data });
+            });
+
+            peer.on('stream', function(remoteStream) {
+                var audio = document.getElementById('remote-audio');
+                if (!audio) {
+                    audio = document.createElement('audio');
+                    audio.id = 'remote-audio';
+                    audio.autoplay = true;
+                    document.body.appendChild(audio);
+                }
+                audio.srcObject = remoteStream;
+            });
+        }
+
+        // Microphone button logic
+        micBtn.addEventListener('mousedown', startMic);
+        micBtn.addEventListener('touchstart', startMic);
+        micBtn.addEventListener('mouseup', stopMic);
+        micBtn.addEventListener('mouseleave', stopMic);
+        micBtn.addEventListener('touchend', stopMic);
+
+        async function startMic() {
+            micIcon.textContent = '🔴';
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                if (!peer) {
+                    // First user in room becomes initiator
+                    signalingSocket.emit('join', { room: room });
+                    signalingSocket.on('joined', function() {
+                        createInitiatorPeer(mediaStream);
+                    });
+                    // If already joined, create as non-initiator
+                    setTimeout(function() {
+                        if (!peer) createPeer(mediaStream);
+                    }, 1000);
+                } else {
+                    // Replace stream if already connected
+                    peer.replaceTrack(peer.streams[0].getAudioTracks()[0], mediaStream.getAudioTracks()[0], peer.streams[0]);
+                }
+            } catch (err) {
+                alert('Microphone access denied.');
+            }
+        }
+
+        function stopMic() {
+            micIcon.textContent = '🎤';
+            if (mediaStream) {
+                let tracks = mediaStream.getTracks();
+                tracks.forEach(track => track.stop());
+                mediaStream = null;
+            }
+            // Optionally, mute local stream
+            if (peer && peer.streams && peer.streams[0]) {
+                peer.streams[0].getAudioTracks().forEach(track => track.enabled = false);
+            }
+        }
+
+        socket.on('message', function(msg) {
+            var div = document.createElement('div');
+            div.textContent = msg;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        function sendMessage() {
+            if(input.value.trim() !== '') {
+                socket.send(input.value);
+                input.value = '';
+            }
+        }
+        input.addEventListener('keyup', function(e) {
+            if(e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
