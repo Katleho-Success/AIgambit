@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AIgambit.com - Play Chess Online</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chessboard.js CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -316,27 +318,75 @@
         .time-option .time-value { font-size: 18px; font-weight: 700; display: block; }
         .time-option .time-label { font-size: 11px; color: var(--text-secondary); }
 
-        /* Board Container */
+        /* Board Container - Chess.com style */
         .board-section {
             display: flex;
             flex-direction: column;
             align-items: center;
+            flex: 1;
+            max-width: 100%;
         }
         .board-wrapper {
             position: relative;
-            padding: 24px 0 0 24px;
+            width: 100%;
+            max-width: 560px;
+            aspect-ratio: 1;
+        }
+        
+        /* Chessboard.js overrides for our theme */
+        #board {
+            width: 100% !important;
+            border: 3px solid var(--bg-dark);
+            border-radius: 4px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* Custom board colors like chess.com */
+        .board-b72b1d .white-1e1d7 { background-color: var(--board-light) !important; }
+        .board-b72b1d .black-3c85d { background-color: var(--board-dark) !important; }
+        
+        /* Highlight squares */
+        .highlight-square {
+            background-color: rgba(247, 247, 105, 0.6) !important;
+        }
+        .selected-square {
+            background-color: rgba(186, 202, 68, 0.7) !important;
+        }
+        .legal-move-dot::after {
+            content: '';
+            position: absolute;
+            width: 25%;
+            height: 25%;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .legal-capture-ring {
+            box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.15) !important;
+            border-radius: 50%;
+        }
+        
+        /* Coordinates */
+        .coords-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 560px;
+            padding: 20px 0 0 20px;
         }
         .coords-files, .coords-ranks {
             position: absolute;
             display: flex;
         }
         .coords-files {
-            bottom: -20px;
-            left: 24px;
-            width: 560px;
+            bottom: -18px;
+            left: 20px;
+            right: 0;
+            justify-content: space-around;
         }
         .coords-files span {
-            width: 70px;
+            flex: 1;
             text-align: center;
             color: var(--text-secondary);
             font-size: 12px;
@@ -344,12 +394,13 @@
         }
         .coords-ranks {
             left: 0;
-            top: 24px;
-            height: 560px;
+            top: 20px;
+            bottom: 0;
             flex-direction: column;
+            justify-content: space-around;
         }
         .coords-ranks span {
-            height: 70px;
+            flex: 1;
             display: flex;
             align-items: center;
             color: var(--text-secondary);
@@ -357,18 +408,15 @@
             font-weight: 600;
         }
 
-        /* Chess Board */
-        #board {
+        /* Legacy board fallback styles (if chessboard.js fails to load) */
+        .fallback-board {
             display: grid;
-            grid-template-columns: repeat(8, 70px);
-            grid-template-rows: repeat(8, 70px);
-            border: 3px solid var(--bg-dark);
-            border-radius: 4px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 100%;
+            aspect-ratio: 1;
         }
         .square {
-            width: 70px;
-            height: 70px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -396,6 +444,35 @@
             position: absolute;
             box-sizing: border-box;
         }
+        
+        /* Chessboard.js custom highlight styles */
+        .highlight-move {
+            position: relative;
+        }
+        .highlight-move::before {
+            content: '';
+            position: absolute;
+            width: 30%;
+            height: 30%;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            pointer-events: none;
+        }
+        .highlight-capture {
+            box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.15) !important;
+            border-radius: 50%;
+        }
+        .highlight-last-from {
+            background-color: rgba(247, 247, 105, 0.5) !important;
+        }
+        .highlight-last-to {
+            background-color: rgba(247, 247, 105, 0.7) !important;
+        }
+        
         .piece {
             width: 60px;
             height: 60px;
@@ -1165,7 +1242,7 @@
             50% { opacity: 0.3; }
         }
 
-        /* ============== MOBILE RESPONSIVE ============== */
+        /* ============== MOBILE RESPONSIVE - Chess.com Style ============== */
         
         /* Tablets and smaller */
         @media (max-width: 1024px) {
@@ -1173,6 +1250,7 @@
                 flex-direction: column;
                 padding: 10px;
                 gap: 10px;
+                align-items: center;
             }
             .side-panel {
                 width: 100%;
@@ -1181,14 +1259,18 @@
             }
             .board-section {
                 order: -1;
+                width: 100%;
+                max-width: 450px;
             }
-            #board {
-                width: min(65vw, 380px) !important;
-                height: min(65vw, 380px) !important;
+            .board-wrapper {
+                max-width: 100%;
+            }
+            .coords-wrapper {
+                max-width: 100%;
             }
         }
         
-        /* Mobile phones - Complete redesign */
+        /* Mobile phones - Chess.com style layout */
         @media (max-width: 768px) {
             /* Compact header */
             .header {
@@ -1197,13 +1279,13 @@
             }
             .logo { font-size: 16px; }
             .logo-icon { font-size: 20px; }
-            .nav-links { display: none; } /* Hide on mobile, use dropdown */
+            .nav-links { display: none; }
             .header-right { gap: 6px; }
             .user-rating { padding: 4px 8px; font-size: 11px; }
             .settings-btn { padding: 4px 8px; font-size: 14px; }
             .dropdown-btn { padding: 6px 10px; font-size: 12px; }
             
-            /* Main container - tight vertical stack */
+            /* Main container - Chess.com style vertical stack */
             .main-container {
                 flex-direction: column;
                 padding: 4px;
@@ -1212,76 +1294,82 @@
                 min-height: auto;
             }
             
-            /* HIDE side panels on mobile - show essential info only */
+            /* HIDE side panels on mobile - show mobile bars instead */
             .side-panel {
                 display: none !important;
             }
             
-            /* Board section takes center */
+            /* Board section centered */
             .board-section {
                 width: 100%;
+                max-width: calc(100vw - 16px);
                 order: 0;
             }
             
-            /* Mobile game info bar - shows above board */
+            /* Mobile game info bar - Chess.com style */
             .mobile-game-bar {
                 display: flex !important;
                 width: 100%;
-                max-width: 90vw;
                 background: var(--bg-panel);
                 border-radius: 6px;
-                padding: 6px 10px;
-                margin-bottom: 4px;
+                padding: 8px 12px;
+                margin-bottom: 6px;
                 justify-content: space-between;
                 align-items: center;
             }
             .mobile-player-info {
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 8px;
             }
-            .mobile-avatar { font-size: 20px; }
-            .mobile-name { font-size: 11px; font-weight: 600; }
+            .mobile-avatar { font-size: 24px; }
+            .mobile-name { font-size: 13px; font-weight: 600; }
             .mobile-timer {
                 background: var(--bg-dark);
-                padding: 4px 10px;
+                padding: 6px 12px;
                 border-radius: 4px;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: 700;
-                font-family: monospace;
+                font-family: 'Courier New', monospace;
+                min-width: 70px;
+                text-align: center;
             }
-            .mobile-timer.active { background: var(--green-primary); }
+            .mobile-timer.active { background: var(--green-primary); color: white; }
+            .mobile-timer.low-time { background: #e74c3c; animation: pulse 1s infinite; }
             .mobile-captured {
                 display: flex;
-                gap: 1px;
-                font-size: 12px;
+                gap: 2px;
+                font-size: 14px;
+                flex-wrap: wrap;
+                max-width: 80px;
             }
             
-            /* Board sizing - fit on screen with info bars */
-            .board-wrapper {
-                max-width: 100%;
+            /* Board wrapper - responsive */
+            .board-wrapper, .coords-wrapper {
+                width: 100%;
+                max-width: calc(100vw - 24px);
+                padding: 0;
             }
             #board {
-                width: min(85vw, 300px) !important;
-                height: min(85vw, 300px) !important;
-                margin: 0 auto;
+                width: 100% !important;
             }
             .coords-ranks, .coords-files {
-                font-size: 8px !important;
+                display: none;  /* Hide coords on mobile for cleaner look */
             }
-            .square { font-size: 6px !important; }
             
             /* Hide feature banner on mobile */
             .feature-banner { display: none !important; }
             
             /* Compact game status */
             .game-status {
-                font-size: 11px;
-                padding: 4px 8px;
-                margin: 4px 0;
+                font-size: 12px;
+                padding: 6px 10px;
+                margin: 6px 0;
+                width: 100%;
+                text-align: center;
             }
             
-            /* Compact controls - icon only */
+            /* Compact controls - responsive grid */
             .game-controls {
                 display: flex;
                 justify-content: center;
@@ -2105,6 +2193,10 @@
 
     <!-- Socket.IO for online play -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- jQuery (required for chessboard.js) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- Chessboard.js for responsive board -->
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 
     <script>
         // ========== CLONE MODE LOCK ========== //
@@ -2281,6 +2373,9 @@
         // Timer interval
         let timerInterval = null;
 
+        // Chessboard.js instance
+        let chessBoard = null;
+
         // Settings
         let settings = {
             showCoords: true,
@@ -2291,41 +2386,188 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            createBoard();
+            initChessBoard();
             loadStats();
             checkCloneUnlock();
+            
+            // Handle window resize for responsive board
+            window.addEventListener('resize', () => {
+                if (chessBoard) {
+                    chessBoard.resize();
+                }
+            });
         });
 
-        function createBoard() {
-            const board = document.getElementById('board');
-            board.innerHTML = '';
+        // Convert FEN to chessboard.js position format
+        function fenToPosition(fen) {
+            const pieces = parseFEN(fen);
+            const position = {};
+            for (const [square, piece] of Object.entries(pieces)) {
+                // Convert to chessboard.js format (wK, bQ, etc.)
+                const color = piece === piece.toUpperCase() ? 'w' : 'b';
+                const pieceType = piece.toUpperCase();
+                position[square] = color + pieceType;
+            }
+            return position;
+        }
 
-            for (let row = 0; row < 8; row++) {
-                for (let col = 0; col < 8; col++) {
-                    const square = document.createElement('div');
-                    const isLight = (row + col) % 2 === 0;
+        // Initialize chessboard.js
+        function initChessBoard() {
+            const config = {
+                draggable: true,
+                position: fenToPosition(game.fen),
+                orientation: game.playerColor,
+                pieceTheme: 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/{piece}.svg',
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd,
+                onMouseoverSquare: onMouseoverSquare,
+                onMouseoutSquare: onMouseoutSquare
+            };
+            
+            chessBoard = Chessboard('board', config);
+            
+            // Also set up click handling for mobile
+            $('#board').on('click', '.square-55d63', function() {
+                const square = $(this).attr('data-square');
+                if (square) {
+                    handleSquareClick(square);
+                }
+            });
+        }
 
-                    const actualRow = game.flipped ? 7 - row : row;
-                    const actualCol = game.flipped ? 7 - col : col;
-                    const squareId = String.fromCharCode(97 + actualCol) + (8 - actualRow);
-
-                    square.className = `square ${isLight ? 'light' : 'dark'}`;
-                    square.dataset.square = squareId;
-                    square.onclick = () => handleSquareClick(squareId);
-
-                    board.appendChild(square);
+        // Drag start handler
+        function onDragStart(source, piece, position, orientation) {
+            if (game.gameOver) return false;
+            
+            // Check if it's player's turn
+            if (game.gameMode !== 'multiplayer' && !game.isPlayerTurn) return false;
+            
+            // Check if the piece belongs to the player
+            const turn = game.fen.split(' ')[1];
+            if (game.gameMode === 'multiplayer') {
+                if ((turn === 'w' && piece.search(/^b/) !== -1) ||
+                    (turn === 'b' && piece.search(/^w/) !== -1)) {
+                    return false;
+                }
+            } else {
+                if ((game.playerColor === 'white' && piece.search(/^b/) !== -1) ||
+                    (game.playerColor === 'black' && piece.search(/^w/) !== -1)) {
+                    return false;
                 }
             }
+            
+            // Fetch legal moves for highlighting
+            fetchLegalMoves(source);
+            return true;
+        }
 
-            updateCoordinates();
-            renderPieces();
+        // Drop handler
+        async function onDrop(source, target) {
+            // Clear highlights
+            removeHighlights();
+            
+            // Check if valid move
+            const move = game.legalMoves.find(m => m.from === source && m.to === target);
+            if (!move) {
+                return 'snapback';
+            }
+            
+            // Check for promotion
+            if (isPromotion(source, target)) {
+                // Temporarily allow the drop, then show promotion modal
+                showPromotionModal(source, target);
+                return; // Let it stay, promotion modal will handle it
+            }
+            
+            // Make the move
+            await makeMove(move.uci);
+        }
+
+        // After piece snaps to square
+        function onSnapEnd() {
+            updateBoardPosition();
+        }
+
+        // Highlight legal moves on hover
+        function onMouseoverSquare(square, piece) {
+            if (!settings.showLegalMoves) return;
+            if (game.gameOver) return;
+            if (!game.isPlayerTurn && game.gameMode !== 'multiplayer') return;
+            
+            // Only highlight for player's pieces
+            if (!piece) return;
+            const isWhitePiece = piece.search(/^w/) !== -1;
+            if ((game.playerColor === 'white' && !isWhitePiece) ||
+                (game.playerColor === 'black' && isWhitePiece)) {
+                return;
+            }
+            
+            // Get and show legal moves
+            fetchLegalMoves(square).then(() => {
+                game.legalMoves.forEach(move => {
+                    highlightSquare(move.to, move.is_capture);
+                });
+            });
+        }
+
+        function onMouseoutSquare(square, piece) {
+            removeHighlights();
+        }
+
+        function highlightSquare(square, isCapture) {
+            const $square = $(`#board .square-55d63[data-square="${square}"]`);
+            if (isCapture) {
+                $square.addClass('highlight-capture');
+            } else {
+                $square.addClass('highlight-move');
+            }
+        }
+
+        function removeHighlights() {
+            $('#board .square-55d63').removeClass('highlight-move highlight-capture highlight-last-from highlight-last-to');
+        }
+
+        function highlightLastMove() {
+            if (!settings.highlightLastMove || game.moveHistory.length === 0) return;
+            const last = game.moveHistory[game.moveHistory.length - 1];
+            $(`#board .square-55d63[data-square="${last.from}"]`).addClass('highlight-last-from');
+            $(`#board .square-55d63[data-square="${last.to}"]`).addClass('highlight-last-to');
+        }
+
+        // Update board position from game state
+        function updateBoardPosition() {
+            if (chessBoard) {
+                chessBoard.position(fenToPosition(game.fen), false);
+                highlightLastMove();
+            }
+        }
+
+        // Flip board orientation
+        function flipBoard() {
+            game.flipped = !game.flipped;
+            if (chessBoard) {
+                chessBoard.orientation(game.flipped ? 'black' : 'white');
+            }
+        }
+
+        // Legacy createBoard for compatibility
+        function createBoard() {
+            if (chessBoard) {
+                updateBoardPosition();
+            } else {
+                initChessBoard();
+            }
         }
 
         function updateCoordinates() {
+            // Handled by chessboard.js, but keep for compatibility
             const files = game.flipped ? 'hgfedcba' : 'abcdefgh';
             const ranks = game.flipped ? '12345678' : '87654321';
-            document.getElementById('files').innerHTML = files.split('').map(f => `<span>${f}</span>`).join('');
-            document.getElementById('ranks').innerHTML = ranks.split('').map(r => `<span>${r}</span>`).join('');
+            const filesEl = document.getElementById('files');
+            const ranksEl = document.getElementById('ranks');
+            if (filesEl) filesEl.innerHTML = files.split('').map(f => `<span>${f}</span>`).join('');
+            if (ranksEl) ranksEl.innerHTML = ranks.split('').map(r => `<span>${r}</span>`).join('');
         }
 
         function parseFEN(fen) {
@@ -2349,43 +2591,19 @@
         }
 
         function renderPieces() {
-            const pieces = parseFEN(game.fen);
-
-            document.querySelectorAll('.square').forEach(sq => {
-                const squareId = sq.dataset.square;
-                const piece = pieces[squareId];
-
-                sq.innerHTML = '';
-                sq.classList.remove('selected', 'highlighted', 'legal-move', 'legal-capture');
-
-                if (piece && PIECE_IMAGES[piece]) {
-                    const img = document.createElement('img');
-                    img.src = PIECE_IMAGES[piece];
-                    img.className = 'piece';
-                    img.alt = piece;
-                    img.draggable = false;
-                    sq.appendChild(img);
-                }
-
-                if (squareId === game.selectedSquare) {
-                    sq.classList.add('selected');
-                }
-
-                if (settings.showLegalMoves) {
-                    const legalMove = game.legalMoves.find(m => m.to === squareId);
-                    if (legalMove) {
-                        sq.classList.add(legalMove.is_capture ? 'legal-capture' : 'legal-move');
-                    }
-                }
-            });
-
-            if (settings.highlightLastMove && game.moveHistory.length > 0) {
-                const last = game.moveHistory[game.moveHistory.length - 1];
-                const from = document.querySelector(`[data-square="${last.from}"]`);
-                const to = document.querySelector(`[data-square="${last.to}"]`);
-                if (from) from.classList.add('highlighted');
-                if (to) to.classList.add('highlighted');
+            // Update chessboard.js position
+            updateBoardPosition();
+            
+            // Also show legal move highlights
+            removeHighlights();
+            
+            if (settings.showLegalMoves && game.selectedSquare) {
+                game.legalMoves.forEach(move => {
+                    highlightSquare(move.to, move.is_capture);
+                });
             }
+            
+            highlightLastMove();
         }
 
         async function handleSquareClick(squareId) {
@@ -3046,6 +3264,11 @@
             };
 
             closeGameModeModal();
+            
+            // Update chessboard orientation based on player color
+            if (chessBoard) {
+                chessBoard.orientation(game.flipped ? 'black' : 'white');
+            }
             createBoard();
             document.getElementById('moves-list').innerHTML = '';
             document.getElementById('white-captured').innerHTML = '';
