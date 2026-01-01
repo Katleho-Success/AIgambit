@@ -258,6 +258,217 @@
             cursor: not-allowed;
         }
 
+        /* Tournament Styles */
+        .tournament-modal .modal-content {
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .tournament-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+        .tournament-card {
+            background: var(--bg-dark);
+            border-radius: 8px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .tournament-card:hover {
+            border-color: var(--green-primary);
+            transform: translateY(-2px);
+        }
+        .tournament-card.in-progress {
+            border-left: 3px solid #f59e0b;
+        }
+        .tournament-card.completed {
+            opacity: 0.7;
+        }
+        .tournament-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .tournament-name {
+            font-weight: 700;
+            font-size: 16px;
+            color: var(--text-primary);
+        }
+        .tournament-status {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+        .tournament-status.open { background: #22c55e; color: #000; }
+        .tournament-status.in_progress { background: #f59e0b; color: #000; }
+        .tournament-status.completed { background: #6b7280; color: #fff; }
+        .tournament-info {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            flex-wrap: wrap;
+        }
+        .tournament-info span { display: flex; align-items: center; gap: 4px; }
+        .tournament-detail {
+            padding: 20px;
+        }
+        .tournament-detail h2 {
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .tournament-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+            background: var(--bg-dark);
+            padding: 16px;
+            border-radius: 8px;
+        }
+        .tournament-meta-item {
+            text-align: center;
+        }
+        .tournament-meta-item .label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .tournament-meta-item .value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .standings-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .standings-table th, .standings-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #3d3a36;
+        }
+        .standings-table th {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .standings-table tr:nth-child(1) td { color: #fbbf24; }
+        .standings-table tr:nth-child(2) td { color: #d1d5db; }
+        .standings-table tr:nth-child(3) td { color: #cd7f32; }
+        .pairings-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .pairing-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-dark);
+            padding: 12px 16px;
+            border-radius: 8px;
+        }
+        .pairing-players {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .pairing-vs {
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .pairing-player {
+            font-weight: 500;
+        }
+        .pairing-player.white::before { content: '⬜ '; }
+        .pairing-player.black::before { content: '⬛ '; }
+        .pairing-result {
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 4px;
+            background: var(--bg-panel);
+        }
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .leaderboard-table th, .leaderboard-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #3d3a36;
+        }
+        .leaderboard-table th {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .leaderboard-table tr:hover {
+            background: var(--bg-dark);
+        }
+        .leaderboard-rank {
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .leaderboard-rank.gold { color: #fbbf24; }
+        .leaderboard-rank.silver { color: #d1d5db; }
+        .leaderboard-rank.bronze { color: #cd7f32; }
+        .create-tournament-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .time-picker {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .time-picker input {
+            width: 60px;
+            text-align: center;
+        }
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #3d3a36;
+            padding-bottom: 8px;
+        }
+        .tab-btn {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: 6px 6px 0 0;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            color: var(--text-primary);
+            background: var(--bg-dark);
+            border-bottom: 2px solid var(--green-primary);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
         /* Dropdown Menu */
         .dropdown {
             position: relative;
@@ -1912,6 +2123,8 @@
             </div>
             <a href="/learn">Learn</a>
             <a href="/review">Review</a>
+            <a href="#" onclick="openTournamentsModal(); return false;">🏆 Tournaments</a>
+            <a href="#" onclick="openLeaderboardModal(); return false;">📊 Leaderboard</a>
         </nav>
         <div class="header-right">
             <!-- Auth Buttons (shown when not logged in) -->
@@ -2363,6 +2576,127 @@
         </div>
     </div>
 
+    <!-- Tournaments Modal -->
+    <div class="modal tournament-modal" id="tournaments-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🏆 Tournaments</h2>
+                <button class="modal-close" onclick="closeTournamentsModal()">&times;</button>
+            </div>
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTournamentTab('browse')">Browse</button>
+                <button class="tab-btn" onclick="switchTournamentTab('my')">My Tournaments</button>
+                <button class="tab-btn" onclick="switchTournamentTab('create')">Create</button>
+            </div>
+            
+            <!-- Browse Tab -->
+            <div class="tab-content active" id="tab-browse">
+                <div class="tournament-filters" style="margin-bottom: 16px; display: flex; gap: 8px;">
+                    <button class="btn-secondary" onclick="filterTournaments('all')" style="padding: 6px 12px; font-size: 12px;">All</button>
+                    <button class="btn-secondary" onclick="filterTournaments('open')" style="padding: 6px 12px; font-size: 12px;">Open</button>
+                    <button class="btn-secondary" onclick="filterTournaments('in_progress')" style="padding: 6px 12px; font-size: 12px;">Live</button>
+                </div>
+                <div class="tournament-list" id="tournament-list">
+                    <p style="color: var(--text-secondary); text-align: center; padding: 20px;">Loading tournaments...</p>
+                </div>
+            </div>
+            
+            <!-- My Tournaments Tab -->
+            <div class="tab-content" id="tab-my">
+                <div class="tournament-list" id="my-tournament-list">
+                    <p style="color: var(--text-secondary); text-align: center; padding: 20px;">No tournaments joined yet</p>
+                </div>
+            </div>
+            
+            <!-- Create Tab -->
+            <div class="tab-content" id="tab-create">
+                <form class="create-tournament-form" id="create-tournament-form" onsubmit="handleCreateTournament(event)">
+                    <div class="form-error" id="tournament-error"></div>
+                    <div class="form-group">
+                        <label for="tournament-name">Tournament Name</label>
+                        <input type="text" id="tournament-name" required placeholder="Enter tournament name" minlength="3" maxlength="50">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="tournament-format">Format</label>
+                            <select id="tournament-format" style="padding: 12px; border-radius: 6px; border: 1px solid #3d3a36; background: var(--bg-dark); color: var(--text-primary); font-size: 14px;">
+                                <option value="swiss">Swiss System</option>
+                                <option value="knockout">Knockout</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="tournament-rounds">Rounds</label>
+                            <input type="number" id="tournament-rounds" value="5" min="1" max="15" style="padding: 12px; border-radius: 6px; border: 1px solid #3d3a36; background: var(--bg-dark); color: var(--text-primary);">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Time Control</label>
+                            <div class="time-picker">
+                                <input type="number" id="tournament-base-time" value="10" min="1" max="180" style="padding: 8px; border-radius: 6px; border: 1px solid #3d3a36; background: var(--bg-dark); color: var(--text-primary);">
+                                <span style="color: var(--text-secondary);">min +</span>
+                                <input type="number" id="tournament-increment" value="0" min="0" max="60" style="padding: 8px; border-radius: 6px; border: 1px solid #3d3a36; background: var(--bg-dark); color: var(--text-primary);">
+                                <span style="color: var(--text-secondary);">sec</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="tournament-max-players">Max Players</label>
+                            <input type="number" id="tournament-max-players" value="32" min="4" max="256" style="padding: 12px; border-radius: 6px; border: 1px solid #3d3a36; background: var(--bg-dark); color: var(--text-primary);">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="tournament-start">Start Time</label>
+                        <input type="datetime-local" id="tournament-start" style="padding: 12px; border-radius: 6px; border: 1px solid #3d3a36; background: var(--bg-dark); color: var(--text-primary); font-size: 14px;">
+                    </div>
+                    <div class="form-group">
+                        <label for="tournament-description">Description (optional)</label>
+                        <textarea id="tournament-description" placeholder="Describe your tournament..." style="padding: 12px; border-radius: 6px; border: 1px solid #3d3a36; background: var(--bg-dark); color: var(--text-primary); font-size: 14px; min-height: 80px; resize: vertical;"></textarea>
+                    </div>
+                    <button type="submit" class="btn-auth-submit">Create Tournament</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tournament Detail Modal -->
+    <div class="modal tournament-modal" id="tournament-detail-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="detail-tournament-name">🏆 Tournament</h2>
+                <button class="modal-close" onclick="closeTournamentDetailModal()">&times;</button>
+            </div>
+            <div class="tournament-detail" id="tournament-detail">
+                <!-- Filled dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaderboard Modal -->
+    <div class="modal tournament-modal" id="leaderboard-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📊 Global Leaderboard</h2>
+                <button class="modal-close" onclick="closeLeaderboardModal()">&times;</button>
+            </div>
+            <div class="leaderboard-container" style="padding: 20px;">
+                <table class="leaderboard-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Player</th>
+                            <th>Points</th>
+                            <th>Tournaments</th>
+                            <th>Wins</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboard-body">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Saved Games Modal -->
     <div class="modal" id="saved-games-modal">
         <div class="modal-content">
@@ -2631,6 +2965,493 @@
                 notif.style.opacity = '0';
                 setTimeout(() => { notif.style.display = 'none'; }, 300);
             }, 3000);
+        }
+
+        // ========== TOURNAMENT SYSTEM ========== //
+        let currentTournamentFilter = 'all';
+        let activeTournament = null;
+
+        function openTournamentsModal() {
+            document.getElementById('tournaments-modal').style.display = 'flex';
+            loadTournaments();
+        }
+
+        function closeTournamentsModal() {
+            document.getElementById('tournaments-modal').style.display = 'none';
+        }
+
+        function openLeaderboardModal() {
+            document.getElementById('leaderboard-modal').style.display = 'flex';
+            loadLeaderboard();
+        }
+
+        function closeLeaderboardModal() {
+            document.getElementById('leaderboard-modal').style.display = 'none';
+        }
+
+        function closeTournamentDetailModal() {
+            document.getElementById('tournament-detail-modal').style.display = 'none';
+            activeTournament = null;
+        }
+
+        function switchTournamentTab(tab) {
+            document.querySelectorAll('.tournament-modal .tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tournament-modal .tab-content').forEach(c => c.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            
+            if (tab === 'browse') loadTournaments();
+            if (tab === 'my') loadMyTournaments();
+        }
+
+        function filterTournaments(filter) {
+            currentTournamentFilter = filter;
+            loadTournaments();
+        }
+
+        async function loadTournaments() {
+            const listEl = document.getElementById('tournament-list');
+            listEl.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">Loading...</p>';
+            
+            try {
+                const url = currentTournamentFilter === 'all' 
+                    ? '/api/tournaments' 
+                    : `/api/tournaments?status=${currentTournamentFilter}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                if (data.success && data.tournaments.length > 0) {
+                    listEl.innerHTML = data.tournaments.map(t => renderTournamentCard(t)).join('');
+                } else {
+                    listEl.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">No tournaments found</p>';
+                }
+            } catch (e) {
+                listEl.innerHTML = '<p style="color: #ff6b6b; text-align: center; padding: 20px;">Error loading tournaments</p>';
+            }
+        }
+
+        async function loadMyTournaments() {
+            if (!currentUser) {
+                document.getElementById('my-tournament-list').innerHTML = 
+                    '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">Login to see your tournaments</p>';
+                return;
+            }
+            
+            const listEl = document.getElementById('my-tournament-list');
+            listEl.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">Loading...</p>';
+            
+            try {
+                const res = await fetch('/api/tournaments');
+                const data = await res.json();
+                
+                if (data.success) {
+                    const myTournaments = data.tournaments.filter(t => 
+                        t.host === currentUser.username || 
+                        (t.players && t.players.includes(currentUser.username))
+                    );
+                    
+                    if (myTournaments.length > 0) {
+                        listEl.innerHTML = myTournaments.map(t => renderTournamentCard(t, true)).join('');
+                    } else {
+                        listEl.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">No tournaments joined yet</p>';
+                    }
+                }
+            } catch (e) {
+                listEl.innerHTML = '<p style="color: #ff6b6b; text-align: center; padding: 20px;">Error loading tournaments</p>';
+            }
+        }
+
+        function renderTournamentCard(t, showActions = false) {
+            const startDate = t.start_time ? new Date(t.start_time).toLocaleString() : 'Not scheduled';
+            return `
+                <div class="tournament-card ${t.status}" onclick="openTournamentDetail('${t.id}')">
+                    <div class="tournament-header">
+                        <span class="tournament-name">${escapeHtml(t.name)}</span>
+                        <span class="tournament-status ${t.status}">${t.status.replace('_', ' ')}</span>
+                    </div>
+                    <div class="tournament-info">
+                        <span>👤 ${t.host}</span>
+                        <span>🎮 ${t.format}</span>
+                        <span>⏱️ ${t.time_control}</span>
+                        <span>👥 ${t.player_count}/${t.max_players}</span>
+                        <span>🗓️ ${startDate}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function openTournamentDetail(tournamentId) {
+            const detailModal = document.getElementById('tournament-detail-modal');
+            const detailContent = document.getElementById('tournament-detail');
+            const titleEl = document.getElementById('detail-tournament-name');
+            
+            detailContent.innerHTML = '<p style="text-align: center; padding: 40px;">Loading...</p>';
+            detailModal.style.display = 'flex';
+            
+            try {
+                const res = await fetch(`/api/tournaments/${tournamentId}`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    activeTournament = data.tournament;
+                    titleEl.textContent = `🏆 ${activeTournament.name}`;
+                    renderTournamentDetail(activeTournament);
+                    
+                    // Join WebSocket room for real-time updates
+                    if (typeof socket !== 'undefined') {
+                        socket.emit('join_tournament_room', { tournament_id: tournamentId });
+                    }
+                } else {
+                    detailContent.innerHTML = '<p style="color: #ff6b6b; text-align: center;">Tournament not found</p>';
+                }
+            } catch (e) {
+                detailContent.innerHTML = '<p style="color: #ff6b6b; text-align: center;">Error loading tournament</p>';
+            }
+        }
+
+        function renderTournamentDetail(t) {
+            const isHost = currentUser && currentUser.username === t.host;
+            const isJoined = currentUser && t.players.includes(currentUser.username);
+            const startDate = t.start_time ? new Date(t.start_time).toLocaleString() : 'Not scheduled';
+            
+            let actionsHtml = '';
+            if (t.status === 'open') {
+                if (!currentUser) {
+                    actionsHtml = '<button class="btn-secondary" onclick="openLoginModal()">Login to Join</button>';
+                } else if (isHost) {
+                    actionsHtml = `
+                        <button class="btn-primary" onclick="startTournament('${t.id}')" ${t.players.length < 2 ? 'disabled title="Need at least 2 players"' : ''}>Start Tournament</button>
+                        <button class="btn-secondary" onclick="cancelTournament('${t.id}')" style="margin-left: 8px;">Cancel</button>
+                    `;
+                } else if (isJoined) {
+                    actionsHtml = `<button class="btn-secondary" onclick="leaveTournament('${t.id}')">Leave Tournament</button>`;
+                } else {
+                    actionsHtml = `<button class="btn-primary" onclick="joinTournament('${t.id}')">Join Tournament</button>`;
+                }
+            } else if (t.status === 'in_progress' && isHost) {
+                actionsHtml = `
+                    <button class="btn-primary" onclick="advanceRound('${t.id}')">Next Round</button>
+                    <button class="btn-secondary" onclick="endTournament('${t.id}')" style="margin-left: 8px;">End Tournament</button>
+                `;
+            }
+            
+            let standingsHtml = '';
+            if (t.scores && Object.keys(t.scores).length > 0) {
+                const sorted = Object.entries(t.scores).sort((a, b) => b[1] - a[1]);
+                standingsHtml = `
+                    <h3 style="margin-top: 24px; margin-bottom: 12px;">📊 Standings</h3>
+                    <table class="standings-table">
+                        <thead><tr><th>#</th><th>Player</th><th>Score</th></tr></thead>
+                        <tbody>
+                            ${sorted.map(([player, score], i) => `
+                                <tr>
+                                    <td>${i + 1}</td>
+                                    <td>${escapeHtml(player)}</td>
+                                    <td>${score}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+            
+            let pairingsHtml = '';
+            if (t.status === 'in_progress' && t.pairings && t.pairings[t.current_round]) {
+                const pairings = t.pairings[t.current_round];
+                pairingsHtml = `
+                    <h3 style="margin-top: 24px; margin-bottom: 12px;">🎮 Round ${t.current_round} Pairings</h3>
+                    <div class="pairings-list">
+                        ${pairings.map(p => {
+                            if (p.bye) {
+                                return `<div class="pairing-card"><span>${p.white} has a bye</span></div>`;
+                            }
+                            return `
+                                <div class="pairing-card">
+                                    <div class="pairing-players">
+                                        <span class="pairing-player white">${escapeHtml(p.white)}</span>
+                                        <span class="pairing-vs">vs</span>
+                                        <span class="pairing-player black">${escapeHtml(p.black)}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
+            
+            document.getElementById('tournament-detail').innerHTML = `
+                <div class="tournament-meta">
+                    <div class="tournament-meta-item">
+                        <div class="label">Format</div>
+                        <div class="value">${t.format}</div>
+                    </div>
+                    <div class="tournament-meta-item">
+                        <div class="label">Time Control</div>
+                        <div class="value">${t.time_control}</div>
+                    </div>
+                    <div class="tournament-meta-item">
+                        <div class="label">Players</div>
+                        <div class="value">${t.players.length}/${t.max_players}</div>
+                    </div>
+                    <div class="tournament-meta-item">
+                        <div class="label">Round</div>
+                        <div class="value">${t.current_round || 0}/${t.total_rounds || '∞'}</div>
+                    </div>
+                    <div class="tournament-meta-item">
+                        <div class="label">Status</div>
+                        <div class="value">${t.status.replace('_', ' ')}</div>
+                    </div>
+                    <div class="tournament-meta-item">
+                        <div class="label">Start</div>
+                        <div class="value" style="font-size: 12px;">${startDate}</div>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <strong>Host:</strong> ${escapeHtml(t.host)}
+                </div>
+                
+                ${t.description ? `<p style="color: var(--text-secondary); margin-bottom: 16px;">${escapeHtml(t.description)}</p>` : ''}
+                
+                <div style="margin-bottom: 16px;">
+                    ${actionsHtml}
+                </div>
+                
+                ${pairingsHtml}
+                ${standingsHtml}
+                
+                <h3 style="margin-top: 24px; margin-bottom: 12px;">👥 Players (${t.players.length})</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    ${t.players.map(p => `<span style="background: var(--bg-dark); padding: 6px 12px; border-radius: 16px; font-size: 13px;">${escapeHtml(p)}${p === t.host ? ' 👑' : ''}</span>`).join('')}
+                </div>
+            `;
+        }
+
+        async function handleCreateTournament(e) {
+            e.preventDefault();
+            
+            if (!currentUser) {
+                showNotification('❌ Please login to create a tournament');
+                openLoginModal();
+                return;
+            }
+            
+            const errorDiv = document.getElementById('tournament-error');
+            const name = document.getElementById('tournament-name').value.trim();
+            const format = document.getElementById('tournament-format').value;
+            const rounds = parseInt(document.getElementById('tournament-rounds').value);
+            const baseTime = document.getElementById('tournament-base-time').value;
+            const increment = document.getElementById('tournament-increment').value;
+            const maxPlayers = parseInt(document.getElementById('tournament-max-players').value);
+            const startTime = document.getElementById('tournament-start').value;
+            const description = document.getElementById('tournament-description').value.trim();
+            
+            try {
+                const res = await fetch('/api/tournaments/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name,
+                        format,
+                        rounds,
+                        time_control: `${baseTime}+${increment}`,
+                        max_players: maxPlayers,
+                        start_time: startTime ? new Date(startTime).toISOString() : null,
+                        description
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('🏆 Tournament created successfully!');
+                    document.getElementById('create-tournament-form').reset();
+                    switchTournamentTab('browse');
+                    loadTournaments();
+                    openTournamentDetail(data.tournament.id);
+                } else {
+                    errorDiv.textContent = data.error;
+                    errorDiv.classList.add('show');
+                }
+            } catch (e) {
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.classList.add('show');
+            }
+        }
+
+        async function joinTournament(tournamentId) {
+            try {
+                const res = await fetch(`/api/tournaments/${tournamentId}/join`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('✅ Joined tournament!');
+                    openTournamentDetail(tournamentId);
+                } else {
+                    showNotification('❌ ' + data.error);
+                }
+            } catch (e) {
+                showNotification('❌ Error joining tournament');
+            }
+        }
+
+        async function leaveTournament(tournamentId) {
+            try {
+                const res = await fetch(`/api/tournaments/${tournamentId}/leave`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('👋 Left tournament');
+                    closeTournamentDetailModal();
+                    loadTournaments();
+                } else {
+                    showNotification('❌ ' + data.error);
+                }
+            } catch (e) {
+                showNotification('❌ Error leaving tournament');
+            }
+        }
+
+        async function startTournament(tournamentId) {
+            try {
+                const res = await fetch(`/api/tournaments/${tournamentId}/start`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('🚀 Tournament started!');
+                    openTournamentDetail(tournamentId);
+                } else {
+                    showNotification('❌ ' + data.error);
+                }
+            } catch (e) {
+                showNotification('❌ Error starting tournament');
+            }
+        }
+
+        async function advanceRound(tournamentId) {
+            try {
+                const res = await fetch(`/api/tournaments/${tournamentId}/next-round`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('➡️ Advanced to round ' + data.tournament.current_round);
+                    openTournamentDetail(tournamentId);
+                } else {
+                    showNotification('❌ ' + data.error);
+                }
+            } catch (e) {
+                showNotification('❌ Error advancing round');
+            }
+        }
+
+        async function endTournament(tournamentId) {
+            if (!confirm('Are you sure you want to end this tournament?')) return;
+            try {
+                const res = await fetch(`/api/tournaments/${tournamentId}/end`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('🏁 Tournament ended!');
+                    openTournamentDetail(tournamentId);
+                } else {
+                    showNotification('❌ ' + data.error);
+                }
+            } catch (e) {
+                showNotification('❌ Error ending tournament');
+            }
+        }
+
+        async function cancelTournament(tournamentId) {
+            if (!confirm('Are you sure you want to cancel this tournament?')) return;
+            try {
+                const res = await fetch(`/api/tournaments/${tournamentId}/cancel`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('🗑️ Tournament cancelled');
+                    closeTournamentDetailModal();
+                    loadTournaments();
+                } else {
+                    showNotification('❌ ' + data.error);
+                }
+            } catch (e) {
+                showNotification('❌ Error cancelling tournament');
+            }
+        }
+
+        async function loadLeaderboard() {
+            const tbody = document.getElementById('leaderboard-body');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>';
+            
+            try {
+                const res = await fetch('/api/leaderboard');
+                const data = await res.json();
+                
+                if (data.success && data.leaderboard.length > 0) {
+                    tbody.innerHTML = data.leaderboard.map((p, i) => {
+                        let rankClass = '';
+                        if (i === 0) rankClass = 'gold';
+                        else if (i === 1) rankClass = 'silver';
+                        else if (i === 2) rankClass = 'bronze';
+                        
+                        return `
+                            <tr>
+                                <td><span class="leaderboard-rank ${rankClass}">${p.rank}</span></td>
+                                <td>${escapeHtml(p.username)}</td>
+                                <td><strong>${p.total_points}</strong></td>
+                                <td>${p.tournaments_played}</td>
+                                <td>${p.tournaments_won}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No players ranked yet. Play in tournaments to get on the leaderboard!</td></tr>';
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ff6b6b;">Error loading leaderboard</td></tr>';
+            }
+        }
+
+        // Handle real-time tournament updates
+        if (typeof socket !== 'undefined') {
+            socket.on('tournament_update', function(data) {
+                if (activeTournament && activeTournament.id === data.tournament_id) {
+                    // Refresh the tournament detail view
+                    openTournamentDetail(data.tournament_id);
+                }
+                
+                // Show notification
+                if (data.type === 'player_joined') {
+                    showNotification(`👤 ${data.player} joined the tournament`);
+                } else if (data.type === 'tournament_started') {
+                    showNotification('🚀 Tournament has started!');
+                } else if (data.type === 'new_round') {
+                    showNotification(`➡️ Round ${data.round} has begun!`);
+                } else if (data.type === 'game_result') {
+                    showNotification(`📊 ${data.white} vs ${data.black}: ${data.result}`);
+                } else if (data.type === 'tournament_ended') {
+                    showNotification('🏁 Tournament has ended!');
+                }
+            });
         }
 
         // ========== CLONE MODE LOCK ========== //

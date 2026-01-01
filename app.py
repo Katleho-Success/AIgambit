@@ -48,6 +48,8 @@ GAMES_FILE = os.path.join(os.path.dirname(__file__), 'saved_games.json')
 PLAYER_STYLE_FILE = os.path.join(os.path.dirname(__file__), 'player_style.json')
 CLONE_MODEL_FILE = os.path.join(os.path.dirname(__file__), 'clone_model.json')
 USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
+TOURNAMENTS_FILE = os.path.join(os.path.dirname(__file__), 'tournaments.json')
+LEADERBOARD_FILE = os.path.join(os.path.dirname(__file__), 'global_leaderboard.json')
 
 # ============== USER AUTHENTICATION ==============
 
@@ -292,6 +294,647 @@ def update_profile():
         update_user(session['user'], updates)
     
     return jsonify({'success': True})
+
+# ============== TOURNAMENT SYSTEM ==============
+
+def load_tournaments():
+    """Load all tournaments from file"""
+    if os.path.exists(TOURNAMENTS_FILE):
+        try:
+            with open(TOURNAMENTS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_tournaments(tournaments):
+    """Save tournaments to file"""
+    with open(TOURNAMENTS_FILE, 'w') as f:
+        json.dump(tournaments, f, indent=2)
+
+def load_leaderboard():
+    """Load global leaderboard"""
+    if os.path.exists(LEADERBOARD_FILE):
+        try:
+            with open(LEADERBOARD_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_leaderboard(leaderboard):
+    """Save global leaderboard"""
+    with open(LEADERBOARD_FILE, 'w') as f:
+        json.dump(leaderboard, f, indent=2)
+
+def update_leaderboard(username, tournament_id, placement, points):
+    """Update player's global leaderboard stats"""
+    leaderboard = load_leaderboard()
+    
+    if username not in leaderboard:
+        leaderboard[username] = {
+            'username': username,
+            'total_points': 0,
+            'tournaments_played': 0,
+            'tournaments_won': 0,
+            'total_games': 0,
+            'total_wins': 0,
+            'best_placement': None,
+            'history': []
+        }
+    
+    player = leaderboard[username]
+    player['total_points'] += points
+    player['tournaments_played'] += 1
+    if placement == 1:
+        player['tournaments_won'] += 1
+    if player['best_placement'] is None or placement < player['best_placement']:
+        player['best_placement'] = placement
+    player['history'].append({
+        'tournament_id': tournament_id,
+        'placement': placement,
+        'points': points,
+        'date': datetime.now().isoformat()
+    })
+    
+    save_leaderboard(leaderboard)
+
+def generate_swiss_pairings(players, scores, round_num, previous_pairings):
+    """
+    Generate Swiss-system pairings.
+    Players with similar scores play each other.
+    Avoid repeat pairings when possible.
+    """
+    # Sort players by score (descending)
+    sorted_players = sorted(players, key=lambda p: scores.get(p, 0), reverse=True)
+    
+    pairings = []
+    paired = set()
+    
+    for i, player1 in enumerate(sorted_players):
+        if player1 in paired:
+            continue
+        
+        # Find best opponent (similar score, hasn't played before)
+        best_opponent = None
+        for j in range(i + 1, len(sorted_players)):
+            player2 = sorted_players[j]
+            if player2 in paired:
+                continue
+            
+            # Check if they've played before
+            pair_key = tuple(sorted([player1, player2]))
+            if pair_key not in previous_pairings:
+                best_opponent = player2
+                break
+        
+        # If no unpaired opponent found, take anyone available
+        if not best_opponent:
+            for j in range(i + 1, len(sorted_players)):
+                player2 = sorted_players[j]
+                if player2 not in paired:
+                    best_opponent = player2
+                    break
+        
+        if best_opponent:
+            # Alternate colors based on round
+            if round_num % 2 == 0:
+                pairings.append({'white': player1, 'black': best_opponent})
+            else:
+                pairings.append({'white': best_opponent, 'black': player1})
+            paired.add(player1)
+            paired.add(best_opponent)
+    
+    # Handle odd number of players (bye)
+    for player in sorted_players:
+        if player not in paired:
+            pairings.append({'white': player, 'black': None, 'bye': True})
+    
+    return pairings
+
+def generate_knockout_bracket(players):
+    """Generate single-elimination bracket"""
+    random.shuffle(players)
+    
+    # Pad to power of 2
+    bracket_size = 1
+    while bracket_size < len(players):
+        bracket_size *= 2
+    
+    # Add byes for missing players
+    bracket = list(players)
+    while len(bracket) < bracket_size:
+        bracket.append(None)  # Bye
+    
+    return bracket
+
+@app.route('/api/tournaments', methods=['GET'])
+def list_tournaments():
+    """List all tournaments with filtering"""
+    status = request.args.get('status', None)  # open, in_progress, completed
+    tournaments = load_tournaments()
+    
+    result = []
+    for tid, t in tournaments.items():
+        # Filter by status if specified
+        if status and t.get('status') != status:
+            continue
+        
+        result.append({
+            'id': tid,
+            'name': t['name'],
+            'host': t['host'],
+            'format': t['format'],
+            'time_control': t['time_control'],
+            'start_time': t['start_time'],
+            'status': t['status'],
+            'player_count': len(t.get('players', [])),
+            'max_players': t.get('max_players', 64),
+            'rounds': t.get('total_rounds', 0),
+            'current_round': t.get('current_round', 0),
+            'created_at': t.get('created_at')
+        })
+    
+    # Sort by start time
+    result.sort(key=lambda x: x.get('start_time', ''), reverse=True)
+    
+    return jsonify({'success': True, 'tournaments': result})
+
+@app.route('/api/tournaments/create', methods=['POST'])
+@login_required
+def create_tournament():
+    """Create a new tournament"""
+    data = request.json
+    user = get_current_user()
+    
+    name = data.get('name', '').strip()
+    format_type = data.get('format', 'swiss')  # swiss, knockout, arena
+    time_control = data.get('time_control', '10+0')  # e.g., "10+0", "5+3", "3+2"
+    start_time = data.get('start_time')  # ISO format datetime
+    max_players = data.get('max_players', 64)
+    rounds = data.get('rounds', 5)  # For Swiss
+    description = data.get('description', '')
+    
+    # Validation
+    if not name or len(name) < 3:
+        return jsonify({'success': False, 'error': 'Tournament name must be at least 3 characters'})
+    if len(name) > 50:
+        return jsonify({'success': False, 'error': 'Tournament name too long (max 50 chars)'})
+    if format_type not in ['swiss', 'knockout', 'arena']:
+        return jsonify({'success': False, 'error': 'Invalid tournament format'})
+    if max_players < 4 or max_players > 256:
+        return jsonify({'success': False, 'error': 'Max players must be between 4 and 256'})
+    if rounds < 1 or rounds > 15:
+        return jsonify({'success': False, 'error': 'Rounds must be between 1 and 15'})
+    
+    # Parse time control
+    try:
+        if '+' in time_control:
+            base, inc = time_control.split('+')
+            base_time = int(base)
+            increment = int(inc)
+        else:
+            base_time = int(time_control)
+            increment = 0
+        if base_time < 1 or base_time > 180:
+            raise ValueError("Invalid base time")
+    except:
+        return jsonify({'success': False, 'error': 'Invalid time control format (use e.g., "10+0" or "5+3")'})
+    
+    tournament_id = str(uuid.uuid4())[:8]
+    
+    tournament = {
+        'id': tournament_id,
+        'name': name,
+        'host': user['username'],
+        'format': format_type,
+        'time_control': time_control,
+        'base_time': base_time * 60,  # Convert to seconds
+        'increment': increment,
+        'start_time': start_time,
+        'max_players': max_players,
+        'total_rounds': rounds if format_type == 'swiss' else None,
+        'current_round': 0,
+        'status': 'open',  # open, in_progress, completed
+        'players': [user['username']],  # Host auto-joins
+        'scores': {user['username']: 0},
+        'games': {},  # round -> list of games
+        'pairings': {},  # round -> pairings
+        'previous_pairings': [],  # Track who played who
+        'bracket': None,  # For knockout
+        'results': [],
+        'description': description,
+        'created_at': datetime.now().isoformat(),
+        'started_at': None,
+        'ended_at': None
+    }
+    
+    tournaments = load_tournaments()
+    tournaments[tournament_id] = tournament
+    save_tournaments(tournaments)
+    
+    return jsonify({'success': True, 'tournament': tournament})
+
+@app.route('/api/tournaments/<tournament_id>', methods=['GET'])
+def get_tournament(tournament_id):
+    """Get tournament details"""
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    return jsonify({'success': True, 'tournament': tournaments[tournament_id]})
+
+@app.route('/api/tournaments/<tournament_id>/join', methods=['POST'])
+@login_required
+def join_tournament(tournament_id):
+    """Join a tournament"""
+    user = get_current_user()
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    tournament = tournaments[tournament_id]
+    
+    if tournament['status'] != 'open':
+        return jsonify({'success': False, 'error': 'Tournament is not open for registration'})
+    
+    if user['username'] in tournament['players']:
+        return jsonify({'success': False, 'error': 'Already joined this tournament'})
+    
+    if len(tournament['players']) >= tournament['max_players']:
+        return jsonify({'success': False, 'error': 'Tournament is full'})
+    
+    tournament['players'].append(user['username'])
+    tournament['scores'][user['username']] = 0
+    save_tournaments(tournaments)
+    
+    # Notify all players via WebSocket
+    socketio.emit('tournament_update', {
+        'type': 'player_joined',
+        'tournament_id': tournament_id,
+        'player': user['username'],
+        'player_count': len(tournament['players'])
+    }, room=f'tournament_{tournament_id}')
+    
+    return jsonify({'success': True, 'tournament': tournament})
+
+@app.route('/api/tournaments/<tournament_id>/leave', methods=['POST'])
+@login_required
+def leave_tournament(tournament_id):
+    """Leave a tournament before it starts"""
+    user = get_current_user()
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    tournament = tournaments[tournament_id]
+    
+    if tournament['status'] != 'open':
+        return jsonify({'success': False, 'error': 'Cannot leave a tournament in progress'})
+    
+    if user['username'] not in tournament['players']:
+        return jsonify({'success': False, 'error': 'Not in this tournament'})
+    
+    if user['username'] == tournament['host']:
+        return jsonify({'success': False, 'error': 'Host cannot leave. Cancel the tournament instead.'})
+    
+    tournament['players'].remove(user['username'])
+    del tournament['scores'][user['username']]
+    save_tournaments(tournaments)
+    
+    socketio.emit('tournament_update', {
+        'type': 'player_left',
+        'tournament_id': tournament_id,
+        'player': user['username'],
+        'player_count': len(tournament['players'])
+    }, room=f'tournament_{tournament_id}')
+    
+    return jsonify({'success': True})
+
+@app.route('/api/tournaments/<tournament_id>/start', methods=['POST'])
+@login_required
+def start_tournament(tournament_id):
+    """Start the tournament (host only)"""
+    user = get_current_user()
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    tournament = tournaments[tournament_id]
+    
+    if user['username'] != tournament['host']:
+        return jsonify({'success': False, 'error': 'Only the host can start the tournament'})
+    
+    if tournament['status'] != 'open':
+        return jsonify({'success': False, 'error': 'Tournament already started or completed'})
+    
+    if len(tournament['players']) < 2:
+        return jsonify({'success': False, 'error': 'Need at least 2 players to start'})
+    
+    tournament['status'] = 'in_progress'
+    tournament['started_at'] = datetime.now().isoformat()
+    tournament['current_round'] = 1
+    
+    # Generate first round pairings
+    if tournament['format'] == 'swiss':
+        pairings = generate_swiss_pairings(
+            tournament['players'],
+            tournament['scores'],
+            1,
+            set()
+        )
+        tournament['pairings']['1'] = pairings
+    elif tournament['format'] == 'knockout':
+        bracket = generate_knockout_bracket(tournament['players'])
+        tournament['bracket'] = bracket
+        # Generate first round from bracket
+        pairings = []
+        for i in range(0, len(bracket), 2):
+            if bracket[i] and bracket[i+1]:
+                pairings.append({'white': bracket[i], 'black': bracket[i+1]})
+            elif bracket[i]:
+                pairings.append({'white': bracket[i], 'black': None, 'bye': True})
+            elif bracket[i+1]:
+                pairings.append({'white': bracket[i+1], 'black': None, 'bye': True})
+        tournament['pairings']['1'] = pairings
+    
+    save_tournaments(tournaments)
+    
+    socketio.emit('tournament_update', {
+        'type': 'tournament_started',
+        'tournament_id': tournament_id,
+        'pairings': tournament['pairings']['1']
+    }, room=f'tournament_{tournament_id}')
+    
+    return jsonify({'success': True, 'tournament': tournament})
+
+@app.route('/api/tournaments/<tournament_id>/result', methods=['POST'])
+@login_required
+def report_result(tournament_id):
+    """Report a game result"""
+    data = request.json
+    user = get_current_user()
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    tournament = tournaments[tournament_id]
+    
+    if tournament['status'] != 'in_progress':
+        return jsonify({'success': False, 'error': 'Tournament is not in progress'})
+    
+    game_id = data.get('game_id')
+    result = data.get('result')  # '1-0', '0-1', '1/2-1/2'
+    white = data.get('white')
+    black = data.get('black')
+    
+    if result not in ['1-0', '0-1', '1/2-1/2']:
+        return jsonify({'success': False, 'error': 'Invalid result'})
+    
+    # Update scores
+    if result == '1-0':
+        tournament['scores'][white] = tournament['scores'].get(white, 0) + 1
+    elif result == '0-1':
+        tournament['scores'][black] = tournament['scores'].get(black, 0) + 1
+    else:  # Draw
+        tournament['scores'][white] = tournament['scores'].get(white, 0) + 0.5
+        tournament['scores'][black] = tournament['scores'].get(black, 0) + 0.5
+    
+    # Track pairing
+    pair_key = tuple(sorted([white, black]))
+    if pair_key not in tournament['previous_pairings']:
+        tournament['previous_pairings'].append(pair_key)
+    
+    # Store game result
+    round_key = str(tournament['current_round'])
+    if round_key not in tournament['games']:
+        tournament['games'][round_key] = []
+    
+    tournament['games'][round_key].append({
+        'game_id': game_id,
+        'white': white,
+        'black': black,
+        'result': result,
+        'reported_at': datetime.now().isoformat()
+    })
+    
+    save_tournaments(tournaments)
+    
+    # Notify tournament room
+    socketio.emit('tournament_update', {
+        'type': 'game_result',
+        'tournament_id': tournament_id,
+        'round': tournament['current_round'],
+        'white': white,
+        'black': black,
+        'result': result,
+        'scores': tournament['scores']
+    }, room=f'tournament_{tournament_id}')
+    
+    return jsonify({'success': True, 'scores': tournament['scores']})
+
+@app.route('/api/tournaments/<tournament_id>/next-round', methods=['POST'])
+@login_required
+def next_round(tournament_id):
+    """Advance to next round (host only)"""
+    user = get_current_user()
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    tournament = tournaments[tournament_id]
+    
+    if user['username'] != tournament['host']:
+        return jsonify({'success': False, 'error': 'Only the host can advance rounds'})
+    
+    if tournament['status'] != 'in_progress':
+        return jsonify({'success': False, 'error': 'Tournament is not in progress'})
+    
+    current_round = tournament['current_round']
+    
+    # Check if tournament should end
+    if tournament['format'] == 'swiss':
+        if current_round >= tournament['total_rounds']:
+            return end_tournament_internal(tournament_id, tournaments)
+    elif tournament['format'] == 'knockout':
+        # Check if only one player remains
+        remaining = [p for p in tournament['players'] if tournament['scores'].get(p, 0) > 0 or current_round == 1]
+        if len(remaining) <= 1:
+            return end_tournament_internal(tournament_id, tournaments)
+    
+    # Advance to next round
+    tournament['current_round'] = current_round + 1
+    
+    # Generate new pairings
+    if tournament['format'] == 'swiss':
+        pairings = generate_swiss_pairings(
+            tournament['players'],
+            tournament['scores'],
+            tournament['current_round'],
+            set(tuple(p) for p in tournament['previous_pairings'])
+        )
+        tournament['pairings'][str(tournament['current_round'])] = pairings
+    
+    save_tournaments(tournaments)
+    
+    socketio.emit('tournament_update', {
+        'type': 'new_round',
+        'tournament_id': tournament_id,
+        'round': tournament['current_round'],
+        'pairings': tournament['pairings'][str(tournament['current_round'])]
+    }, room=f'tournament_{tournament_id}')
+    
+    return jsonify({'success': True, 'tournament': tournament})
+
+@app.route('/api/tournaments/<tournament_id>/end', methods=['POST'])
+@login_required
+def end_tournament(tournament_id):
+    """End the tournament (host only)"""
+    user = get_current_user()
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    tournament = tournaments[tournament_id]
+    
+    if user['username'] != tournament['host']:
+        return jsonify({'success': False, 'error': 'Only the host can end the tournament'})
+    
+    return end_tournament_internal(tournament_id, tournaments)
+
+def end_tournament_internal(tournament_id, tournaments):
+    """Internal function to end tournament and update leaderboard"""
+    tournament = tournaments[tournament_id]
+    tournament['status'] = 'completed'
+    tournament['ended_at'] = datetime.now().isoformat()
+    
+    # Calculate final standings
+    standings = sorted(
+        tournament['scores'].items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+    
+    tournament['final_standings'] = standings
+    
+    # Update global leaderboard
+    for placement, (username, score) in enumerate(standings, 1):
+        # Points based on placement and tournament size
+        points = max(0, len(standings) - placement + 1) * 10
+        if placement == 1:
+            points += 50  # Bonus for winning
+        elif placement == 2:
+            points += 25
+        elif placement == 3:
+            points += 10
+        
+        update_leaderboard(username, tournament_id, placement, points)
+    
+    save_tournaments(tournaments)
+    
+    socketio.emit('tournament_update', {
+        'type': 'tournament_ended',
+        'tournament_id': tournament_id,
+        'standings': standings
+    }, room=f'tournament_{tournament_id}')
+    
+    return jsonify({'success': True, 'standings': standings})
+
+@app.route('/api/tournaments/<tournament_id>/cancel', methods=['POST'])
+@login_required
+def cancel_tournament(tournament_id):
+    """Cancel a tournament (host only, before it starts)"""
+    user = get_current_user()
+    tournaments = load_tournaments()
+    
+    if tournament_id not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    tournament = tournaments[tournament_id]
+    
+    if user['username'] != tournament['host']:
+        return jsonify({'success': False, 'error': 'Only the host can cancel the tournament'})
+    
+    if tournament['status'] == 'in_progress':
+        return jsonify({'success': False, 'error': 'Cannot cancel a tournament in progress'})
+    
+    del tournaments[tournament_id]
+    save_tournaments(tournaments)
+    
+    socketio.emit('tournament_update', {
+        'type': 'tournament_cancelled',
+        'tournament_id': tournament_id
+    }, room=f'tournament_{tournament_id}')
+    
+    return jsonify({'success': True})
+
+@app.route('/api/leaderboard', methods=['GET'])
+def get_leaderboard():
+    """Get global leaderboard"""
+    leaderboard = load_leaderboard()
+    
+    # Sort by total points
+    sorted_lb = sorted(
+        leaderboard.values(),
+        key=lambda x: x['total_points'],
+        reverse=True
+    )
+    
+    # Add rank
+    for i, player in enumerate(sorted_lb, 1):
+        player['rank'] = i
+    
+    return jsonify({'success': True, 'leaderboard': sorted_lb})
+
+@app.route('/api/leaderboard/<username>', methods=['GET'])
+def get_player_ranking(username):
+    """Get specific player's ranking info"""
+    leaderboard = load_leaderboard()
+    
+    if username not in leaderboard:
+        return jsonify({'success': False, 'error': 'Player not found in leaderboard'})
+    
+    # Calculate rank
+    sorted_lb = sorted(
+        leaderboard.items(),
+        key=lambda x: x[1]['total_points'],
+        reverse=True
+    )
+    
+    rank = 1
+    for uname, data in sorted_lb:
+        if uname == username:
+            break
+        rank += 1
+    
+    player_data = leaderboard[username]
+    player_data['rank'] = rank
+    player_data['total_players'] = len(leaderboard)
+    
+    return jsonify({'success': True, 'player': player_data})
+
+# WebSocket handlers for tournaments
+@socketio.on('join_tournament_room')
+def on_join_tournament_room(data):
+    """Join tournament room for real-time updates"""
+    tournament_id = data.get('tournament_id')
+    if tournament_id:
+        join_room(f'tournament_{tournament_id}')
+        emit('tournament_room_joined', {'tournament_id': tournament_id})
+
+@socketio.on('leave_tournament_room')
+def on_leave_tournament_room(data):
+    """Leave tournament room"""
+    tournament_id = data.get('tournament_id')
+    if tournament_id:
+        leave_room(f'tournament_{tournament_id}')
 
 # ============== LICHESS CLOUD API ==============
 def get_lichess_move(fen, skill=10):
