@@ -2197,7 +2197,8 @@ def make_move():
         'result': get_game_result(board) if board.is_game_over() else None
     }
     
-    if get_engine_move and not board.is_game_over() and engine:
+    # Get engine move - use Stockfish if available, otherwise cloud API
+    if get_engine_move and not board.is_game_over():
         try:
             engine_move = get_skill_adjusted_move(board, skill)
             if engine_move:
@@ -2213,14 +2214,11 @@ def make_move():
     return jsonify(result)
 
 @app.route('/api/engine_move', methods=['POST'])
-def get_engine_move():
-    """Get engine's move for current position"""
+def get_engine_move_route():
+    """Get engine's move for current position - uses Stockfish or cloud API"""
     data = request.json
     fen = data.get('fen')
     skill = data.get('skill', 10)
-    
-    if not engine:
-        return jsonify({'success': False, 'error': 'Engine not available'})
     
     board = chess.Board(fen)
     
@@ -2228,25 +2226,26 @@ def get_engine_move():
         return jsonify({'success': False, 'error': 'Game is over'})
     
     try:
-        # Use skill-adjusted move selection
+        # Use skill-adjusted move selection (works with Stockfish or cloud API)
         move = get_skill_adjusted_move(board, skill)
         
         if not move:
             return jsonify({'success': False, 'error': 'No legal moves'})
         
-        # Get evaluation for display
+        # Get evaluation for display (if engine available)
         eval_cp = None
-        with engine_lock:
-            try:
-                info = engine.analyse(board, chess.engine.Limit(time=0.1))
-                score = info.get('score')
-                if score:
-                    if score.relative.is_mate():
-                        eval_cp = 10000 if score.relative.mate() > 0 else -10000
-                    else:
-                        eval_cp = score.relative.score()
-            except:
-                pass
+        if engine:
+            with engine_lock:
+                try:
+                    info = engine.analyse(board, chess.engine.Limit(time=0.1))
+                    score = info.get('score')
+                    if score:
+                        if score.relative.is_mate():
+                            eval_cp = 10000 if score.relative.mate() > 0 else -10000
+                        else:
+                            eval_cp = score.relative.score()
+                except:
+                    pass
         
         board.push(move)
         
