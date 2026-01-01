@@ -20,11 +20,17 @@ import math
 import uuid
 import random
 import requests
+import hashlib
+import re
 from datetime import datetime
+from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = 'aigambit_secret_key_2025'
-CORS(app)
+app.secret_key = 'aigambit_secret_key_2025_secure'
+app.config['SESSION_COOKIE_SECURE'] = False  # Set True for HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+CORS(app, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global engine instance
@@ -41,6 +47,251 @@ STATS_FILE = os.path.join(os.path.dirname(__file__), 'player_stats.json')
 GAMES_FILE = os.path.join(os.path.dirname(__file__), 'saved_games.json')
 PLAYER_STYLE_FILE = os.path.join(os.path.dirname(__file__), 'player_style.json')
 CLONE_MODEL_FILE = os.path.join(os.path.dirname(__file__), 'clone_model.json')
+USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
+
+# ============== USER AUTHENTICATION ==============
+
+def hash_password(password):
+    """Hash password with salt"""
+    salt = 'aigambit_salt_2025'
+    return hashlib.sha256((password + salt).encode()).hexdigest()
+
+def validate_email(email):
+    """Basic email validation"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+def validate_username(username):
+    """Username must be 3-20 chars, alphanumeric and underscores only"""
+    pattern = r'^[a-zA-Z0-9_]{3,20}$'
+    return re.match(pattern, username) is not None
+
+def load_users():
+    """Load all users from file"""
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_users(users):
+    """Save users to file"""
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f, indent=2)
+
+def get_user(username):
+    """Get user by username (case-insensitive)"""
+    users = load_users()
+    username_lower = username.lower()
+    for uname, data in users.items():
+        if uname.lower() == username_lower:
+            return data
+    return None
+
+def get_user_by_email(email):
+    """Get user by email"""
+    users = load_users()
+    email_lower = email.lower()
+    for uname, data in users.items():
+        if data.get('email', '').lower() == email_lower:
+            return data
+    return None
+
+def create_user(username, email, password):
+    """Create a new user account"""
+    users = load_users()
+    
+    # Check if username exists (case-insensitive)
+    if any(u.lower() == username.lower() for u in users.keys()):
+        return None, "Username already taken"
+    
+    # Check if email exists
+    if any(u.get('email', '').lower() == email.lower() for u in users.values()):
+        return None, "Email already registered"
+    
+    # Create user with default stats
+    user_data = {
+        'username': username,
+        'email': email.lower(),
+        'password_hash': hash_password(password),
+        'created_at': datetime.now().isoformat(),
+        'rating': 1200,
+        'stats': {
+            'games_played': 0,
+            'wins': 0,
+            'losses': 0,
+            'draws': 0,
+            'rating': 1200
+        },
+        'games': [],
+        'clone_model': {},
+        'player_style': {
+            'opening_moves': {},
+            'piece_preferences': {},
+            'move_patterns': {},
+            'time_usage': [],
+            'risk_score': 50
+        },
+        'settings': {
+            'board_theme': 'green',
+            'piece_set': 'cburnett',
+            'show_coords': True,
+            'sound_enabled': True
+        }
+    }
+    
+    users[username] = user_data
+    save_users(users)
+    return user_data, None
+
+def update_user(username, updates):
+    """Update user data"""
+    users = load_users()
+    if username in users:
+        users[username].update(updates)
+        save_users(users)
+        return True
+    return False
+
+def get_current_user():
+    """Get currently logged in user from session"""
+    if 'user' in session:
+        return get_user(session['user'])
+    return None
+
+def login_required(f):
+    """Decorator to require login for API routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Login required'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Auth API Routes
+@app.route('/api/auth/signup', methods=['POST'])
+def signup():
+    """Register a new user"""
+    data = request.json
+    username = data.get('username', '').strip()
+    email = data.get('email', '').strip()
+    password = data.get('password', '')
+    
+    # Validation
+    if not username or not email or not password:
+        return jsonify({'success': False, 'error': 'All fields are required'})
+    
+    if not validate_username(username):
+        return jsonify({'success': False, 'error': 'Username must be 3-20 characters, letters, numbers and underscores only'})
+    
+    if not validate_email(email):
+        return jsonify({'success': False, 'error': 'Invalid email address'})
+    
+    if len(password) < 6:
+        return jsonify({'success': False, 'error': 'Password must be at least 6 characters'})
+    
+    # Create user
+    user, error = create_user(username, email, password)
+    if error:
+        return jsonify({'success': False, 'error': error})
+    
+    # Auto login after signup
+    session['user'] = username
+    session.permanent = True
+    
+    return jsonify({
+        'success': True,
+        'user': {
+            'username': user['username'],
+            'email': user['email'],
+            'rating': user['rating'],
+            'stats': user['stats']
+        }
+    })
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Login user"""
+    data = request.json
+    login_id = data.get('username', '').strip()  # Can be username or email
+    password = data.get('password', '')
+    
+    if not login_id or not password:
+        return jsonify({'success': False, 'error': 'Username/email and password required'})
+    
+    # Try to find user by username or email
+    user = get_user(login_id)
+    if not user:
+        user = get_user_by_email(login_id)
+    
+    if not user:
+        return jsonify({'success': False, 'error': 'User not found'})
+    
+    # Check password
+    if user['password_hash'] != hash_password(password):
+        return jsonify({'success': False, 'error': 'Incorrect password'})
+    
+    # Set session
+    session['user'] = user['username']
+    session.permanent = True
+    
+    return jsonify({
+        'success': True,
+        'user': {
+            'username': user['username'],
+            'email': user['email'],
+            'rating': user['rating'],
+            'stats': user['stats']
+        }
+    })
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """Logout user"""
+    session.pop('user', None)
+    return jsonify({'success': True})
+
+@app.route('/api/auth/me', methods=['GET'])
+def get_me():
+    """Get current logged in user"""
+    user = get_current_user()
+    if not user:
+        return jsonify({'success': False, 'logged_in': False})
+    
+    return jsonify({
+        'success': True,
+        'logged_in': True,
+        'user': {
+            'username': user['username'],
+            'email': user['email'],
+            'rating': user['rating'],
+            'stats': user['stats'],
+            'created_at': user.get('created_at'),
+            'settings': user.get('settings', {})
+        }
+    })
+
+@app.route('/api/auth/update-profile', methods=['POST'])
+@login_required
+def update_profile():
+    """Update user profile settings"""
+    data = request.json
+    user = get_current_user()
+    
+    if not user:
+        return jsonify({'success': False, 'error': 'Not logged in'})
+    
+    # Update allowed fields
+    updates = {}
+    if 'settings' in data:
+        updates['settings'] = data['settings']
+    
+    if updates:
+        update_user(session['user'], updates)
+    
+    return jsonify({'success': True})
 
 # ============== LICHESS CLOUD API ==============
 def get_lichess_move(fen, skill=10):
@@ -155,14 +406,31 @@ def get_random_smart_move(board, skill=5):
     
     return random.choice(legal_moves)
 
-def load_stats():
-    """Load player statistics"""
+def load_stats(username=None):
+    """Load player statistics - user-specific if logged in"""
+    # If username provided, get user-specific stats
+    if username:
+        user = get_user(username)
+        if user and 'stats' in user:
+            stats = user['stats']
+            # Ensure all fields exist
+            default_stats = get_default_stats()
+            for key in default_stats:
+                if key not in stats:
+                    stats[key] = default_stats[key]
+            return stats
+    
+    # Fall back to global stats file for anonymous users
     if os.path.exists(STATS_FILE):
         try:
             with open(STATS_FILE, 'r') as f:
                 return json.load(f)
         except:
             pass
+    return get_default_stats()
+
+def get_default_stats():
+    """Return default stats structure"""
     return {
         'rating': 1200,
         'games_played': 0,
@@ -177,16 +445,32 @@ def load_stats():
         'achievements': []
     }
 
-def save_stats(stats):
-    """Save player statistics"""
+def save_stats(stats, username=None):
+    """Save player statistics - user-specific if logged in"""
+    if username:
+        users = load_users()
+        if username in users:
+            users[username]['stats'] = stats
+            users[username]['rating'] = stats.get('rating', 1200)
+            save_users(users)
+            return
+    
+    # Fall back to global stats file
     try:
         with open(STATS_FILE, 'w') as f:
             json.dump(stats, f, indent=2)
     except Exception as e:
         print(f"Error saving stats: {e}")
 
-def load_games():
-    """Load saved games"""
+def load_games(username=None):
+    """Load saved games - user-specific if logged in"""
+    if username:
+        user = get_user(username)
+        if user and 'games' in user:
+            return user['games']
+        return []
+    
+    # Fall back to global games file
     if os.path.exists(GAMES_FILE):
         try:
             with open(GAMES_FILE, 'r') as f:
@@ -195,17 +479,33 @@ def load_games():
             pass
     return []
 
-def save_games(games):
-    """Save games list"""
+def save_games(games, username=None):
+    """Save games list - user-specific if logged in"""
+    games = games[-50:]  # Keep last 50 games
+    
+    if username:
+        users = load_users()
+        if username in users:
+            users[username]['games'] = games
+            save_users(users)
+            return
+    
+    # Fall back to global games file
     try:
-        games = games[-50:]
         with open(GAMES_FILE, 'w') as f:
             json.dump(games, f, indent=2)
     except Exception as e:
         print(f"Error saving games: {e}")
 
-def load_player_style():
-    """Load player style profile for clone AI"""
+def load_player_style(username=None):
+    """Load player style profile for clone AI - user-specific if logged in"""
+    if username:
+        user = get_user(username)
+        if user and 'player_style' in user:
+            return user['player_style']
+        return init_player_style()
+    
+    # Fall back to global file
     if os.path.exists(PLAYER_STYLE_FILE):
         try:
             with open(PLAYER_STYLE_FILE, 'r') as f:
@@ -273,16 +573,31 @@ def init_player_style():
         'total_moves_analyzed': 0
     }
 
-def save_player_style(style):
-    """Save player style profile"""
+def save_player_style(style, username=None):
+    """Save player style profile - user-specific if logged in"""
+    if username:
+        users = load_users()
+        if username in users:
+            users[username]['player_style'] = style
+            save_users(users)
+            return
+    
+    # Fall back to global file
     try:
         with open(PLAYER_STYLE_FILE, 'w') as f:
             json.dump(style, f, indent=2)
     except Exception as e:
         print(f"Error saving player style: {e}")
 
-def load_clone_model():
-    """Load the clone model (position -> move preferences)"""
+def load_clone_model(username=None):
+    """Load the clone model (position -> move preferences) - user-specific if logged in"""
+    if username:
+        user = get_user(username)
+        if user and 'clone_model' in user:
+            return user['clone_model']
+        return {}
+    
+    # Fall back to global file
     if os.path.exists(CLONE_MODEL_FILE):
         try:
             with open(CLONE_MODEL_FILE, 'r') as f:
@@ -291,8 +606,16 @@ def load_clone_model():
             pass
     return {}
 
-def save_clone_model(model):
-    """Save clone model"""
+def save_clone_model(model, username=None):
+    """Save clone model - user-specific if logged in"""
+    if username:
+        users = load_users()
+        if username in users:
+            users[username]['clone_model'] = model
+            save_users(users)
+            return
+    
+    # Fall back to global file
     try:
         with open(CLONE_MODEL_FILE, 'w') as f:
             json.dump(model, f, indent=2)
@@ -343,9 +666,9 @@ def analyze_move_type(board, move):
     
     return move_info
 
-def update_player_style_from_game(game_data):
-    """Update player style based on a completed game"""
-    style = load_player_style()
+def update_player_style_from_game(game_data, username=None):
+    """Update player style based on a completed game - user-specific if logged in"""
+    style = load_player_style(username)
     moves = game_data.get('moves', [])
     player_color = game_data.get('player_color', 'white')
     
@@ -434,7 +757,7 @@ def update_player_style_from_game(game_data):
                         style['first_moves_black'][move_san] = style['first_moves_black'].get(move_san, 0) + 1
                 
                 # Update clone model with position -> move mapping
-                update_clone_model_position(board.fen(), move.uci(), player_color)
+                update_clone_model_position(board.fen(), move.uci(), player_color, username)
                 
                 # Determine game phase
                 if move_number < 10:
@@ -482,11 +805,11 @@ def update_player_style_from_game(game_data):
     style['games_analyzed'] += 1
     style['total_moves_analyzed'] += player_moves_in_game
     
-    save_player_style(style)
+    save_player_style(style, username)
 
-def update_clone_model_position(fen, move_uci, player_color):
-    """Update clone model with a position -> move mapping"""
-    model = load_clone_model()
+def update_clone_model_position(fen, move_uci, player_color, username=None):
+    """Update clone model with a position -> move mapping - user-specific if logged in"""
+    model = load_clone_model(username)
     
     # Use board position only (not turn info, castling rights, etc for simpler matching)
     board_key = fen.split()[0]
@@ -508,7 +831,7 @@ def update_clone_model_position(fen, move_uci, player_color):
         for key in sorted_keys[:500]:
             del model[key]
     
-    save_clone_model(model)
+    save_clone_model(model, username)
 
 def get_skill_adjusted_move(board, skill):
     """
@@ -1068,15 +1391,17 @@ def review():
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """Get player statistics"""
-    stats = load_stats()
-    return jsonify({'success': True, 'stats': stats})
+    """Get player statistics - user-specific if logged in"""
+    username = session.get('user')
+    stats = load_stats(username)
+    return jsonify({'success': True, 'stats': stats, 'logged_in': username is not None})
 
 @app.route('/api/stats/update', methods=['POST'])
 def update_stats():
     """Update player statistics after a game"""
     data = request.json
-    stats = load_stats()
+    username = session.get('user')
+    stats = load_stats(username)
     
     result = data.get('result', 'draw')
     accuracy = data.get('accuracy', 0)
@@ -1116,7 +1441,7 @@ def update_stats():
     stats['rating_history'] = stats['rating_history'][-100:]
     
     check_achievements(stats)
-    save_stats(stats)
+    save_stats(stats, username)
     return jsonify({'success': True, 'stats': stats, 'rating_change': rating_change})
 
 def check_achievements(stats):
@@ -1138,15 +1463,17 @@ def check_achievements(stats):
 
 @app.route('/api/games', methods=['GET'])
 def get_games():
-    """Get saved games for review"""
-    games = load_games()
+    """Get saved games for review - user-specific if logged in"""
+    username = session.get('user')
+    games = load_games(username)
     return jsonify({'success': True, 'games': games})
 
 @app.route('/api/games/save', methods=['POST'])
 def save_game():
-    """Save a completed game and update player style"""
+    """Save a completed game and update player style - user-specific if logged in"""
     data = request.json
-    games = load_games()
+    username = session.get('user')
+    games = load_games(username)
     
     game_data = {
         'id': len(games) + 1,
@@ -1160,11 +1487,11 @@ def save_game():
     }
     
     games.append(game_data)
-    save_games(games)
+    save_games(games, username)
     
     # Update player style for AI Clone learning
     try:
-        update_player_style_from_game(game_data)
+        update_player_style_from_game(game_data, username)
     except Exception as e:
         print(f"Error updating player style: {e}")
     
@@ -1172,8 +1499,9 @@ def save_game():
 
 @app.route('/api/games/<int:game_id>', methods=['GET'])
 def get_game(game_id):
-    """Get a specific game for review"""
-    games = load_games()
+    """Get a specific game for review - user-specific if logged in"""
+    username = session.get('user')
+    games = load_games(username)
     for game in games:
         if game.get('id') == game_id:
             return jsonify({'success': True, 'game': game})

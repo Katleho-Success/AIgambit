@@ -95,6 +95,169 @@
         }
         .settings-btn:hover { background: var(--bg-panel); }
 
+        /* Auth Styles */
+        .auth-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .btn-login, .btn-signup {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+        .btn-login {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--text-secondary);
+        }
+        .btn-login:hover {
+            background: var(--bg-panel);
+            border-color: var(--text-primary);
+        }
+        .btn-signup {
+            background: var(--green-primary);
+            color: white;
+        }
+        .btn-signup:hover { background: var(--green-dark); }
+        
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: relative;
+        }
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--green-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .user-avatar:hover { background: var(--green-dark); }
+        .user-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: var(--bg-panel);
+            min-width: 180px;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            z-index: 1000;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .user-profile:hover .user-menu { display: block; }
+        .user-menu-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #3d3a36;
+        }
+        .user-menu-header .username {
+            font-weight: 700;
+            font-size: 15px;
+            color: var(--text-primary);
+        }
+        .user-menu-header .rating {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .user-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            background: none;
+            width: 100%;
+            font-size: 14px;
+            font-family: inherit;
+            text-align: left;
+        }
+        .user-menu-item:hover { background: var(--bg-dark); }
+        .user-menu-item.logout { color: #ff6b6b; }
+
+        /* Auth Modal Specific */
+        .auth-modal .modal-content {
+            max-width: 400px;
+        }
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-group label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .form-group input {
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #3d3a36;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--green-primary);
+        }
+        .form-error {
+            color: #ff6b6b;
+            font-size: 12px;
+            padding: 8px;
+            background: rgba(255, 107, 107, 0.1);
+            border-radius: 4px;
+            display: none;
+        }
+        .form-error.show { display: block; }
+        .auth-switch {
+            text-align: center;
+            margin-top: 16px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        .auth-switch a {
+            color: var(--green-primary);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .btn-auth-submit {
+            padding: 12px;
+            background: var(--green-primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-auth-submit:hover { background: var(--green-dark); }
+        .btn-auth-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         /* Dropdown Menu */
         .dropdown {
             position: relative;
@@ -1478,19 +1641,6 @@
         
         /* Mobile game bar - hidden by default, shown via media query */
         .mobile-game-bar { display: none; }
-                order: 0;
-            }
-            #board {
-                width: min(70vh, 320px) !important;
-                height: min(70vh, 320px) !important;
-            }
-            .stats-grid {
-                display: none; /* Hide stats in landscape to save space */
-            }
-            .modal-options-scroll {
-                max-height: 35vh;
-            }
-        }
         
         /* Touch-friendly adjustments */
         @media (hover: none) and (pointer: coarse) {
@@ -1764,7 +1914,27 @@
             <a href="/review">Review</a>
         </nav>
         <div class="header-right">
-            <div class="user-rating">⭐ <span id="user-rating">1200</span></div>
+            <!-- Auth Buttons (shown when not logged in) -->
+            <div class="auth-buttons" id="auth-buttons">
+                <button class="btn-login" onclick="openLoginModal()">Login</button>
+                <button class="btn-signup" onclick="openSignupModal()">Sign Up</button>
+            </div>
+            
+            <!-- User Profile (shown when logged in) -->
+            <div class="user-profile" id="user-profile" style="display: none;">
+                <div class="user-rating">⭐ <span id="user-rating">1200</span></div>
+                <div class="user-avatar" id="user-avatar">U</div>
+                <div class="user-menu">
+                    <div class="user-menu-header">
+                        <div class="username" id="header-username">Username</div>
+                        <div class="rating">Rating: <span id="header-rating">1200</span></div>
+                    </div>
+                    <button class="user-menu-item" onclick="openSettingsModal()">⚙️ Settings</button>
+                    <button class="user-menu-item" onclick="openSavedGamesModal()">📂 My Games</button>
+                    <button class="user-menu-item logout" onclick="handleLogout()">🚪 Logout</button>
+                </div>
+            </div>
+            
             <button class="settings-btn" onclick="openSettingsModal()">⚙️</button>
         </div>
     </header>
@@ -2135,6 +2305,64 @@
         </div>
     </div>
 
+    <!-- Login Modal -->
+    <div class="modal auth-modal" id="login-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔐 Login</h2>
+                <button class="modal-close" onclick="closeLoginModal()">&times;</button>
+            </div>
+            <form class="auth-form" id="login-form" onsubmit="handleLogin(event)">
+                <div class="form-error" id="login-error"></div>
+                <div class="form-group">
+                    <label for="login-email">Email or Username</label>
+                    <input type="text" id="login-email" required placeholder="Enter email or username">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" required placeholder="Enter password">
+                </div>
+                <button type="submit" class="btn-auth-submit" id="login-submit">Login</button>
+            </form>
+            <div class="auth-switch">
+                Don't have an account? <a onclick="switchToSignup()">Sign up</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Signup Modal -->
+    <div class="modal auth-modal" id="signup-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📝 Create Account</h2>
+                <button class="modal-close" onclick="closeSignupModal()">&times;</button>
+            </div>
+            <form class="auth-form" id="signup-form" onsubmit="handleSignup(event)">
+                <div class="form-error" id="signup-error"></div>
+                <div class="form-group">
+                    <label for="signup-username">Username</label>
+                    <input type="text" id="signup-username" required placeholder="Choose a username" minlength="3" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label for="signup-email">Email</label>
+                    <input type="email" id="signup-email" required placeholder="Enter your email">
+                </div>
+                <div class="form-group">
+                    <label for="signup-password">Password</label>
+                    <input type="password" id="signup-password" required placeholder="Create password" minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="signup-confirm">Confirm Password</label>
+                    <input type="password" id="signup-confirm" required placeholder="Confirm password">
+                </div>
+                <button type="submit" class="btn-auth-submit" id="signup-submit">Create Account</button>
+            </form>
+            <div class="auth-switch">
+                Already have an account? <a onclick="switchToLogin()">Login</a>
+            </div>
+        </div>
+    </div>
+
     <!-- Saved Games Modal -->
     <div class="modal" id="saved-games-modal">
         <div class="modal-content">
@@ -2199,6 +2427,212 @@
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 
     <script>
+        // ========== AUTH STATE ========== //
+        let currentUser = null;
+
+        // Check auth status on page load
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/auth/me', { credentials: 'include' });
+                const data = await res.json();
+                if (data.success && data.user) {
+                    currentUser = data.user;
+                    updateUIForLoggedInUser();
+                    return true;
+                } else {
+                    currentUser = null;
+                    updateUIForLoggedOutUser();
+                    return false;
+                }
+            } catch (e) {
+                console.error('Auth check failed:', e);
+                currentUser = null;
+                updateUIForLoggedOutUser();
+                return false;
+            }
+        }
+
+        function updateUIForLoggedInUser() {
+            document.getElementById('auth-buttons').style.display = 'none';
+            document.getElementById('user-profile').style.display = 'flex';
+            
+            if (currentUser) {
+                const initial = currentUser.username.charAt(0).toUpperCase();
+                document.getElementById('user-avatar').textContent = initial;
+                document.getElementById('header-username').textContent = currentUser.username;
+                document.getElementById('user-rating').textContent = currentUser.rating || 1200;
+                document.getElementById('header-rating').textContent = currentUser.rating || 1200;
+            }
+            
+            // Reload stats for logged in user
+            loadStats();
+        }
+
+        function updateUIForLoggedOutUser() {
+            document.getElementById('auth-buttons').style.display = 'flex';
+            document.getElementById('user-profile').style.display = 'none';
+        }
+
+        // Open/Close auth modals
+        function openLoginModal() {
+            document.getElementById('login-modal').style.display = 'flex';
+            document.getElementById('login-error').classList.remove('show');
+            document.getElementById('login-form').reset();
+        }
+        function closeLoginModal() {
+            document.getElementById('login-modal').style.display = 'none';
+        }
+        function openSignupModal() {
+            document.getElementById('signup-modal').style.display = 'flex';
+            document.getElementById('signup-error').classList.remove('show');
+            document.getElementById('signup-form').reset();
+        }
+        function closeSignupModal() {
+            document.getElementById('signup-modal').style.display = 'none';
+        }
+        function switchToSignup() {
+            closeLoginModal();
+            openSignupModal();
+        }
+        function switchToLogin() {
+            closeSignupModal();
+            openLoginModal();
+        }
+
+        // Handle login
+        async function handleLogin(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('login-submit');
+            const errorDiv = document.getElementById('login-error');
+            
+            const identifier = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+            
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ identifier, password })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    currentUser = data.user;
+                    closeLoginModal();
+                    updateUIForLoggedInUser();
+                    showNotification('✅ Welcome back, ' + currentUser.username + '!');
+                } else {
+                    errorDiv.textContent = data.error || 'Login failed';
+                    errorDiv.classList.add('show');
+                }
+            } catch (err) {
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.classList.add('show');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }
+        }
+
+        // Handle signup
+        async function handleSignup(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('signup-submit');
+            const errorDiv = document.getElementById('signup-error');
+            
+            const username = document.getElementById('signup-username').value.trim();
+            const email = document.getElementById('signup-email').value.trim();
+            const password = document.getElementById('signup-password').value;
+            const confirm = document.getElementById('signup-confirm').value;
+            
+            // Validate passwords match
+            if (password !== confirm) {
+                errorDiv.textContent = 'Passwords do not match';
+                errorDiv.classList.add('show');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating account...';
+            
+            try {
+                const res = await fetch('/api/auth/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ username, email, password })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    currentUser = data.user;
+                    closeSignupModal();
+                    updateUIForLoggedInUser();
+                    showNotification('🎉 Welcome to AIgambit, ' + currentUser.username + '!');
+                } else {
+                    errorDiv.textContent = data.error || 'Signup failed';
+                    errorDiv.classList.add('show');
+                }
+            } catch (err) {
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.classList.add('show');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
+            }
+        }
+
+        // Handle logout
+        async function handleLogout() {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+            } catch (e) {
+                console.error('Logout error:', e);
+            }
+            currentUser = null;
+            updateUIForLoggedOutUser();
+            showNotification('👋 Logged out successfully');
+            loadStats(); // Reload default stats
+        }
+
+        // Simple notification
+        function showNotification(message) {
+            let notif = document.getElementById('auth-notification');
+            if (!notif) {
+                notif = document.createElement('div');
+                notif.id = 'auth-notification';
+                notif.style.cssText = `
+                    position: fixed;
+                    top: 80px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: var(--bg-panel);
+                    color: var(--text-primary);
+                    padding: 12px 24px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    z-index: 10000;
+                    font-size: 14px;
+                    transition: opacity 0.3s;
+                `;
+                document.body.appendChild(notif);
+            }
+            notif.textContent = message;
+            notif.style.opacity = '1';
+            notif.style.display = 'block';
+            setTimeout(() => {
+                notif.style.opacity = '0';
+                setTimeout(() => { notif.style.display = 'none'; }, 300);
+            }, 3000);
+        }
+
         // ========== CLONE MODE LOCK ========== //
         let cloneUnlocked = false;
         let cloneLockReason = '';
@@ -2386,6 +2820,7 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            checkAuth(); // Check if user is logged in
             initChessBoard();
             loadStats();
             checkCloneUnlock();
