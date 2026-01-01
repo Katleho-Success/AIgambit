@@ -1,8 +1,7 @@
-flask==3.0.0
-flask-cors==4.0.0
-flask-socketio==5.3.6
-python-chess==1.999
-gunicorn==21.2.0
-eventlet==0.33.3
-gevent==23.9.1
-gevent-websocket==0.10.1
+flask>=3.0.0
+flask-cors>=4.0.0
+flask-socketio>=5.3.6
+python-chess>=1.999
+gunicorn>=21.2.0
+eventlet>=0.35.0
+simple-websocket>=1.0.0
