@@ -9,6 +9,7 @@ Open: http://localhost:5000
 from flask import Flask, render_template, jsonify, request, session
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_sqlalchemy import SQLAlchemy
 import chess
 import chess.engine
 import os
@@ -26,23 +27,153 @@ from datetime import datetime
 from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = 'aigambit_secret_key_2025_secure'
-app.config['SESSION_COOKIE_SECURE'] = False  # Set True for HTTPS
+app.secret_key = os.environ.get('SECRET_KEY', 'aigambit_secret_key_2025_secure')
+
+# Database configuration - use PostgreSQL if DATABASE_URL is set, else SQLite for local dev
+database_url = os.environ.get('DATABASE_URL', '')
+if database_url.startswith('postgres://'):
+    # Railway uses postgres:// but SQLAlchemy needs postgresql://
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+if database_url:
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+else:
+    # Local development - use SQLite
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///aigambit.db'
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('RAILWAY_ENVIRONMENT') is not None  # True on Railway
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+db = SQLAlchemy(app)
 CORS(app, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# ============== DATABASE MODELS ==============
+
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(64), nullable=False)
+    rating = db.Column(db.Integer, default=1200)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Store complex data as JSON
+    stats = db.Column(db.Text, default='{}')  # JSON string
+    games = db.Column(db.Text, default='[]')  # JSON string
+    clone_model = db.Column(db.Text, default='{}')  # JSON string
+    player_style = db.Column(db.Text, default='{}')  # JSON string
+    settings = db.Column(db.Text, default='{}')  # JSON string
+    
+    def to_dict(self):
+        return {
+            'username': self.username,
+            'email': self.email,
+            'password_hash': self.password_hash,
+            'rating': self.rating,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'stats': json.loads(self.stats or '{}'),
+            'games': json.loads(self.games or '[]'),
+            'clone_model': json.loads(self.clone_model or '{}'),
+            'player_style': json.loads(self.player_style or '{}'),
+            'settings': json.loads(self.settings or '{}')
+        }
+
+class Tournament(db.Model):
+    __tablename__ = 'tournaments'
+    id = db.Column(db.String(8), primary_key=True)
+    name = db.Column(db.String(50), nullable=False)
+    host = db.Column(db.String(20), nullable=False)
+    format = db.Column(db.String(20), default='swiss')
+    time_control = db.Column(db.String(20), default='10+0')
+    base_time = db.Column(db.Integer, default=600)
+    increment = db.Column(db.Integer, default=0)
+    start_time = db.Column(db.DateTime, nullable=True)
+    max_players = db.Column(db.Integer, default=64)
+    total_rounds = db.Column(db.Integer, nullable=True)
+    current_round = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(20), default='open')
+    description = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime, nullable=True)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    
+    # Store complex data as JSON
+    players = db.Column(db.Text, default='[]')  # JSON list of usernames
+    scores = db.Column(db.Text, default='{}')  # JSON dict
+    games_data = db.Column(db.Text, default='{}')  # JSON dict
+    pairings = db.Column(db.Text, default='{}')  # JSON dict
+    previous_pairings = db.Column(db.Text, default='[]')  # JSON list
+    bracket = db.Column(db.Text, nullable=True)  # JSON for knockout
+    final_standings = db.Column(db.Text, default='[]')  # JSON list
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'host': self.host,
+            'format': self.format,
+            'time_control': self.time_control,
+            'base_time': self.base_time,
+            'increment': self.increment,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'max_players': self.max_players,
+            'total_rounds': self.total_rounds,
+            'current_round': self.current_round,
+            'status': self.status,
+            'description': self.description,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'ended_at': self.ended_at.isoformat() if self.ended_at else None,
+            'players': json.loads(self.players or '[]'),
+            'scores': json.loads(self.scores or '{}'),
+            'games': json.loads(self.games_data or '{}'),
+            'pairings': json.loads(self.pairings or '{}'),
+            'previous_pairings': json.loads(self.previous_pairings or '[]'),
+            'bracket': json.loads(self.bracket) if self.bracket else None,
+            'final_standings': json.loads(self.final_standings or '[]')
+        }
+
+class LeaderboardEntry(db.Model):
+    __tablename__ = 'leaderboard'
+    username = db.Column(db.String(20), primary_key=True)
+    total_points = db.Column(db.Integer, default=0)
+    tournaments_played = db.Column(db.Integer, default=0)
+    tournaments_won = db.Column(db.Integer, default=0)
+    total_games = db.Column(db.Integer, default=0)
+    total_wins = db.Column(db.Integer, default=0)
+    best_placement = db.Column(db.Integer, nullable=True)
+    history = db.Column(db.Text, default='[]')  # JSON list
+    
+    def to_dict(self):
+        return {
+            'username': self.username,
+            'total_points': self.total_points,
+            'tournaments_played': self.tournaments_played,
+            'tournaments_won': self.tournaments_won,
+            'total_games': self.total_games,
+            'total_wins': self.total_wins,
+            'best_placement': self.best_placement,
+            'history': json.loads(self.history or '[]')
+        }
+
+# Create tables
+with app.app_context():
+    db.create_all()
 
 # Global engine instance
 engine = None
 engine_lock = threading.Lock()
 
-# Online games storage
+# Online games storage (in-memory, not persisted)
 online_games = {}  # game_id -> game data
 waiting_players = []  # list of players waiting for match
 player_sessions = {}  # socket_id -> player data
 
-# Stats file path
+# Legacy file paths (for backwards compatibility / local dev fallback)
 STATS_FILE = os.path.join(os.path.dirname(__file__), 'player_stats.json')
 GAMES_FILE = os.path.join(os.path.dirname(__file__), 'saved_games.json')
 PLAYER_STYLE_FILE = os.path.join(os.path.dirname(__file__), 'player_style.json')
@@ -68,94 +199,94 @@ def validate_username(username):
     pattern = r'^[a-zA-Z0-9_]{3,20}$'
     return re.match(pattern, username) is not None
 
-def load_users():
-    """Load all users from file"""
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
-
-def save_users(users):
-    """Save users to file"""
-    with open(USERS_FILE, 'w') as f:
-        json.dump(users, f, indent=2)
-
 def get_user(username):
-    """Get user by username (case-insensitive)"""
-    users = load_users()
-    username_lower = username.lower()
-    for uname, data in users.items():
-        if uname.lower() == username_lower:
-            return data
-    return None
+    """Get user by username (case-insensitive) - DATABASE VERSION"""
+    user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
+    return user.to_dict() if user else None
 
 def get_user_by_email(email):
-    """Get user by email"""
-    users = load_users()
-    email_lower = email.lower()
-    for uname, data in users.items():
-        if data.get('email', '').lower() == email_lower:
-            return data
-    return None
+    """Get user by email - DATABASE VERSION"""
+    user = User.query.filter(db.func.lower(User.email) == email.lower()).first()
+    return user.to_dict() if user else None
 
 def create_user(username, email, password):
-    """Create a new user account"""
-    users = load_users()
-    
+    """Create a new user account - DATABASE VERSION"""
     # Check if username exists (case-insensitive)
-    if any(u.lower() == username.lower() for u in users.keys()):
+    if User.query.filter(db.func.lower(User.username) == username.lower()).first():
         return None, "Username already taken"
     
     # Check if email exists
-    if any(u.get('email', '').lower() == email.lower() for u in users.values()):
+    if User.query.filter(db.func.lower(User.email) == email.lower()).first():
         return None, "Email already registered"
     
     # Create user with default stats
-    user_data = {
-        'username': username,
-        'email': email.lower(),
-        'password_hash': hash_password(password),
-        'created_at': datetime.now().isoformat(),
-        'rating': 1200,
-        'stats': {
-            'games_played': 0,
-            'wins': 0,
-            'losses': 0,
-            'draws': 0,
-            'rating': 1200
-        },
-        'games': [],
-        'clone_model': {},
-        'player_style': {
-            'opening_moves': {},
-            'piece_preferences': {},
-            'move_patterns': {},
-            'time_usage': [],
-            'risk_score': 50
-        },
-        'settings': {
-            'board_theme': 'green',
-            'piece_set': 'cburnett',
-            'show_coords': True,
-            'sound_enabled': True
-        }
+    default_stats = {
+        'games_played': 0,
+        'wins': 0,
+        'losses': 0,
+        'draws': 0,
+        'rating': 1200
+    }
+    default_style = {
+        'opening_moves': {},
+        'piece_preferences': {},
+        'move_patterns': {},
+        'time_usage': [],
+        'risk_score': 50
+    }
+    default_settings = {
+        'board_theme': 'green',
+        'piece_set': 'cburnett',
+        'show_coords': True,
+        'sound_enabled': True
     }
     
-    users[username] = user_data
-    save_users(users)
-    return user_data, None
+    user = User(
+        username=username,
+        email=email.lower(),
+        password_hash=hash_password(password),
+        rating=1200,
+        stats=json.dumps(default_stats),
+        games=json.dumps([]),
+        clone_model=json.dumps({}),
+        player_style=json.dumps(default_style),
+        settings=json.dumps(default_settings)
+    )
+    
+    try:
+        db.session.add(user)
+        db.session.commit()
+        return user.to_dict(), None
+    except Exception as e:
+        db.session.rollback()
+        return None, str(e)
 
 def update_user(username, updates):
-    """Update user data"""
-    users = load_users()
-    if username in users:
-        users[username].update(updates)
-        save_users(users)
+    """Update user data - DATABASE VERSION"""
+    user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
+    if not user:
+        return False
+    
+    try:
+        if 'rating' in updates:
+            user.rating = updates['rating']
+        if 'stats' in updates:
+            user.stats = json.dumps(updates['stats'])
+        if 'games' in updates:
+            user.games = json.dumps(updates['games'])
+        if 'clone_model' in updates:
+            user.clone_model = json.dumps(updates['clone_model'])
+        if 'player_style' in updates:
+            user.player_style = json.dumps(updates['player_style'])
+        if 'settings' in updates:
+            user.settings = json.dumps(updates['settings'])
+        
+        db.session.commit()
         return True
-    return False
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating user: {e}")
+        return False
 
 def get_current_user():
     """Get currently logged in user from session"""
@@ -298,66 +429,118 @@ def update_profile():
 # ============== TOURNAMENT SYSTEM ==============
 
 def load_tournaments():
-    """Load all tournaments from file"""
-    if os.path.exists(TOURNAMENTS_FILE):
-        try:
-            with open(TOURNAMENTS_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
+    """Load all tournaments - DATABASE VERSION"""
+    tournaments = Tournament.query.all()
+    return {t.id: t.to_dict() for t in tournaments}
 
-def save_tournaments(tournaments):
-    """Save tournaments to file"""
-    with open(TOURNAMENTS_FILE, 'w') as f:
-        json.dump(tournaments, f, indent=2)
+def save_tournament(tournament_dict):
+    """Save or update a tournament - DATABASE VERSION"""
+    tid = tournament_dict['id']
+    tournament = Tournament.query.get(tid)
+    
+    if tournament:
+        # Update existing
+        tournament.name = tournament_dict.get('name', tournament.name)
+        tournament.status = tournament_dict.get('status', tournament.status)
+        tournament.current_round = tournament_dict.get('current_round', tournament.current_round)
+        tournament.players = json.dumps(tournament_dict.get('players', []))
+        tournament.scores = json.dumps(tournament_dict.get('scores', {}))
+        tournament.games_data = json.dumps(tournament_dict.get('games', {}))
+        tournament.pairings = json.dumps(tournament_dict.get('pairings', {}))
+        tournament.previous_pairings = json.dumps(tournament_dict.get('previous_pairings', []))
+        if tournament_dict.get('bracket'):
+            tournament.bracket = json.dumps(tournament_dict['bracket'])
+        if tournament_dict.get('final_standings'):
+            tournament.final_standings = json.dumps(tournament_dict['final_standings'])
+        if tournament_dict.get('started_at'):
+            tournament.started_at = datetime.fromisoformat(tournament_dict['started_at']) if isinstance(tournament_dict['started_at'], str) else tournament_dict['started_at']
+        if tournament_dict.get('ended_at'):
+            tournament.ended_at = datetime.fromisoformat(tournament_dict['ended_at']) if isinstance(tournament_dict['ended_at'], str) else tournament_dict['ended_at']
+    else:
+        # Create new
+        tournament = Tournament(
+            id=tid,
+            name=tournament_dict['name'],
+            host=tournament_dict['host'],
+            format=tournament_dict.get('format', 'swiss'),
+            time_control=tournament_dict.get('time_control', '10+0'),
+            base_time=tournament_dict.get('base_time', 600),
+            increment=tournament_dict.get('increment', 0),
+            start_time=datetime.fromisoformat(tournament_dict['start_time']) if tournament_dict.get('start_time') else None,
+            max_players=tournament_dict.get('max_players', 64),
+            total_rounds=tournament_dict.get('total_rounds'),
+            current_round=tournament_dict.get('current_round', 0),
+            status=tournament_dict.get('status', 'open'),
+            description=tournament_dict.get('description', ''),
+            players=json.dumps(tournament_dict.get('players', [])),
+            scores=json.dumps(tournament_dict.get('scores', {})),
+            games_data=json.dumps(tournament_dict.get('games', {})),
+            pairings=json.dumps(tournament_dict.get('pairings', {})),
+            previous_pairings=json.dumps(tournament_dict.get('previous_pairings', []))
+        )
+        db.session.add(tournament)
+    
+    try:
+        db.session.commit()
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error saving tournament: {e}")
+        return False
+
+def delete_tournament(tournament_id):
+    """Delete a tournament - DATABASE VERSION"""
+    tournament = Tournament.query.get(tournament_id)
+    if tournament:
+        try:
+            db.session.delete(tournament)
+            db.session.commit()
+            return True
+        except:
+            db.session.rollback()
+    return False
 
 def load_leaderboard():
-    """Load global leaderboard"""
-    if os.path.exists(LEADERBOARD_FILE):
-        try:
-            with open(LEADERBOARD_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
-
-def save_leaderboard(leaderboard):
-    """Save global leaderboard"""
-    with open(LEADERBOARD_FILE, 'w') as f:
-        json.dump(leaderboard, f, indent=2)
+    """Load global leaderboard - DATABASE VERSION"""
+    entries = LeaderboardEntry.query.all()
+    return {e.username: e.to_dict() for e in entries}
 
 def update_leaderboard(username, tournament_id, placement, points):
-    """Update player's global leaderboard stats"""
-    leaderboard = load_leaderboard()
+    """Update player's global leaderboard stats - DATABASE VERSION"""
+    entry = LeaderboardEntry.query.get(username)
     
-    if username not in leaderboard:
-        leaderboard[username] = {
-            'username': username,
-            'total_points': 0,
-            'tournaments_played': 0,
-            'tournaments_won': 0,
-            'total_games': 0,
-            'total_wins': 0,
-            'best_placement': None,
-            'history': []
-        }
+    if not entry:
+        entry = LeaderboardEntry(
+            username=username,
+            total_points=0,
+            tournaments_played=0,
+            tournaments_won=0,
+            total_games=0,
+            total_wins=0,
+            history=json.dumps([])
+        )
+        db.session.add(entry)
     
-    player = leaderboard[username]
-    player['total_points'] += points
-    player['tournaments_played'] += 1
+    entry.total_points += points
+    entry.tournaments_played += 1
     if placement == 1:
-        player['tournaments_won'] += 1
-    if player['best_placement'] is None or placement < player['best_placement']:
-        player['best_placement'] = placement
-    player['history'].append({
+        entry.tournaments_won += 1
+    if entry.best_placement is None or placement < entry.best_placement:
+        entry.best_placement = placement
+    
+    history = json.loads(entry.history or '[]')
+    history.append({
         'tournament_id': tournament_id,
         'placement': placement,
         'points': points,
         'date': datetime.now().isoformat()
     })
+    entry.history = json.dumps(history)
     
-    save_leaderboard(leaderboard)
+    try:
+        db.session.commit()
+    except:
+        db.session.rollback()
 
 def generate_swiss_pairings(players, scores, round_num, previous_pairings):
     """
@@ -529,9 +712,7 @@ def create_tournament():
         'ended_at': None
     }
     
-    tournaments = load_tournaments()
-    tournaments[tournament_id] = tournament
-    save_tournaments(tournaments)
+    save_tournament(tournament)
     
     return jsonify({'success': True, 'tournament': tournament})
 
@@ -568,7 +749,7 @@ def join_tournament(tournament_id):
     
     tournament['players'].append(user['username'])
     tournament['scores'][user['username']] = 0
-    save_tournaments(tournaments)
+    save_tournament(tournament)
     
     # Notify all players via WebSocket
     socketio.emit('tournament_update', {
@@ -603,7 +784,7 @@ def leave_tournament(tournament_id):
     
     tournament['players'].remove(user['username'])
     del tournament['scores'][user['username']]
-    save_tournaments(tournaments)
+    save_tournament(tournament)
     
     socketio.emit('tournament_update', {
         'type': 'player_left',
@@ -662,7 +843,7 @@ def start_tournament(tournament_id):
                 pairings.append({'white': bracket[i+1], 'black': None, 'bye': True})
         tournament['pairings']['1'] = pairings
     
-    save_tournaments(tournaments)
+    save_tournament(tournament)
     
     socketio.emit('tournament_update', {
         'type': 'tournament_started',
@@ -723,7 +904,7 @@ def report_result(tournament_id):
         'reported_at': datetime.now().isoformat()
     })
     
-    save_tournaments(tournaments)
+    save_tournament(tournament)
     
     # Notify tournament room
     socketio.emit('tournament_update', {
@@ -761,12 +942,12 @@ def next_round(tournament_id):
     # Check if tournament should end
     if tournament['format'] == 'swiss':
         if current_round >= tournament['total_rounds']:
-            return end_tournament_internal(tournament_id, tournaments)
+            return end_tournament_internal(tournament)
     elif tournament['format'] == 'knockout':
         # Check if only one player remains
         remaining = [p for p in tournament['players'] if tournament['scores'].get(p, 0) > 0 or current_round == 1]
         if len(remaining) <= 1:
-            return end_tournament_internal(tournament_id, tournaments)
+            return end_tournament_internal(tournament)
     
     # Advance to next round
     tournament['current_round'] = current_round + 1
@@ -781,7 +962,7 @@ def next_round(tournament_id):
         )
         tournament['pairings'][str(tournament['current_round'])] = pairings
     
-    save_tournaments(tournaments)
+    save_tournament(tournament)
     
     socketio.emit('tournament_update', {
         'type': 'new_round',
@@ -807,11 +988,11 @@ def end_tournament(tournament_id):
     if user['username'] != tournament['host']:
         return jsonify({'success': False, 'error': 'Only the host can end the tournament'})
     
-    return end_tournament_internal(tournament_id, tournaments)
+    return end_tournament_internal(tournament)
 
-def end_tournament_internal(tournament_id, tournaments):
+def end_tournament_internal(tournament):
     """Internal function to end tournament and update leaderboard"""
-    tournament = tournaments[tournament_id]
+    tournament_id = tournament['id']
     tournament['status'] = 'completed'
     tournament['ended_at'] = datetime.now().isoformat()
     
@@ -837,7 +1018,7 @@ def end_tournament_internal(tournament_id, tournaments):
         
         update_leaderboard(username, tournament_id, placement, points)
     
-    save_tournaments(tournaments)
+    save_tournament(tournament)
     
     socketio.emit('tournament_update', {
         'type': 'tournament_ended',
@@ -865,8 +1046,7 @@ def cancel_tournament(tournament_id):
     if tournament['status'] == 'in_progress':
         return jsonify({'success': False, 'error': 'Cannot cancel a tournament in progress'})
     
-    del tournaments[tournament_id]
-    save_tournaments(tournaments)
+    delete_tournament(tournament_id)
     
     socketio.emit('tournament_update', {
         'type': 'tournament_cancelled',
@@ -1091,11 +1271,12 @@ def get_default_stats():
 def save_stats(stats, username=None):
     """Save player statistics - user-specific if logged in"""
     if username:
-        users = load_users()
-        if username in users:
-            users[username]['stats'] = stats
-            users[username]['rating'] = stats.get('rating', 1200)
-            save_users(users)
+        user = get_user(username)
+        if user:
+            update_user(username, {
+                'stats': stats,
+                'rating': stats.get('rating', 1200)
+            })
             return
     
     # Fall back to global stats file
@@ -1127,10 +1308,9 @@ def save_games(games, username=None):
     games = games[-50:]  # Keep last 50 games
     
     if username:
-        users = load_users()
-        if username in users:
-            users[username]['games'] = games
-            save_users(users)
+        user = get_user(username)
+        if user:
+            update_user(username, {'games': games})
             return
     
     # Fall back to global games file
@@ -1219,10 +1399,9 @@ def init_player_style():
 def save_player_style(style, username=None):
     """Save player style profile - user-specific if logged in"""
     if username:
-        users = load_users()
-        if username in users:
-            users[username]['player_style'] = style
-            save_users(users)
+        user = get_user(username)
+        if user:
+            update_user(username, {'player_style': style})
             return
     
     # Fall back to global file
@@ -1252,10 +1431,9 @@ def load_clone_model(username=None):
 def save_clone_model(model, username=None):
     """Save clone model - user-specific if logged in"""
     if username:
-        users = load_users()
-        if username in users:
-            users[username]['clone_model'] = model
-            save_users(users)
+        user = get_user(username)
+        if user:
+            update_user(username, {'clone_model': model})
             return
     
     # Fall back to global file
