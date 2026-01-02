@@ -707,88 +707,20 @@
             aspect-ratio: 1;
         }
         
-        /* Chessboard.js overrides for our theme */
+        /* Custom click-based board styles */
         #board {
-            width: 100% !important;
-            border: 3px solid var(--bg-dark);
-            border-radius: 4px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        }
-        
-        /* Custom board colors like chess.com */
-        .board-b72b1d .white-1e1d7 { background-color: var(--board-light) !important; }
-        .board-b72b1d .black-3c85d { background-color: var(--board-dark) !important; }
-        
-        /* Highlight squares */
-        .highlight-square {
-            background-color: rgba(247, 247, 105, 0.6) !important;
-        }
-        .selected-square {
-            background-color: rgba(186, 202, 68, 0.7) !important;
-        }
-        .legal-move-dot::after {
-            content: '';
-            position: absolute;
-            width: 25%;
-            height: 25%;
-            background: rgba(0, 0, 0, 0.15);
-            border-radius: 50%;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-        .legal-capture-ring {
-            box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.15) !important;
-            border-radius: 50%;
-        }
-        
-        /* Coordinates */
-        .coords-wrapper {
-            position: relative;
-            width: 100%;
-            max-width: 560px;
-            padding: 20px 0 0 20px;
-        }
-        .coords-files, .coords-ranks {
-            position: absolute;
-            display: flex;
-        }
-        .coords-files {
-            bottom: -18px;
-            left: 20px;
-            right: 0;
-            justify-content: space-around;
-        }
-        .coords-files span {
-            flex: 1;
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .coords-ranks {
-            left: 0;
-            top: 20px;
-            bottom: 0;
-            flex-direction: column;
-            justify-content: space-around;
-        }
-        .coords-ranks span {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            color: var(--text-secondary);
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        /* Legacy board fallback styles (if chessboard.js fails to load) */
-        .fallback-board {
             display: grid;
             grid-template-columns: repeat(8, 1fr);
             grid-template-rows: repeat(8, 1fr);
-            width: 100%;
+            width: 100% !important;
             aspect-ratio: 1;
+            border: 3px solid var(--bg-dark);
+            border-radius: 4px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            touch-action: manipulation;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         .square {
             display: flex;
@@ -796,62 +728,51 @@
             justify-content: center;
             cursor: pointer;
             position: relative;
+            transition: background-color 0.1s;
         }
-        .square.light { background: var(--board-light); }
-        .square.dark { background: var(--board-dark); }
-        .square.selected { background: var(--selected) !important; }
-        .square.highlighted { background: var(--highlight) !important; }
+        .square.light { background-color: var(--board-light); }
+        .square.dark { background-color: var(--board-dark); }
+        .square.selected { background-color: var(--selected) !important; }
+        .square.highlighted { background-color: var(--highlight) !important; }
+        .square.last-move { background-color: rgba(247, 247, 105, 0.5) !important; }
         .square.legal-move::after {
             content: '';
-            width: 20px;
-            height: 20px;
+            position: absolute;
+            width: 25%;
+            height: 25%;
             background: rgba(0, 0, 0, 0.15);
             border-radius: 50%;
-            position: absolute;
+            pointer-events: none;
         }
         .square.legal-capture::after {
             content: '';
+            position: absolute;
             width: 100%;
             height: 100%;
-            border: 5px solid rgba(0, 0, 0, 0.15);
+            border: 4px solid rgba(0, 0, 0, 0.15);
             border-radius: 50%;
-            position: absolute;
             box-sizing: border-box;
-        }
-        
-        /* Chessboard.js custom highlight styles */
-        .highlight-move {
-            position: relative;
-        }
-        .highlight-move::before {
-            content: '';
-            position: absolute;
-            width: 30%;
-            height: 30%;
-            background: rgba(0, 0, 0, 0.15);
-            border-radius: 50%;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 10;
             pointer-events: none;
         }
-        .highlight-capture {
-            box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.15) !important;
-            border-radius: 50%;
+        .square:active {
+            opacity: 0.9;
         }
-        .highlight-last-from {
-            background-color: rgba(247, 247, 105, 0.5) !important;
-        }
-        .highlight-last-to {
-            background-color: rgba(247, 247, 105, 0.7) !important;
-        }
-        
         .piece {
-            width: 60px;
-            height: 60px;
+            width: 85%;
+            height: 85%;
             pointer-events: none;
             filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.3));
+            transition: transform 0.1s;
+        }
+        .square.selected .piece {
+            transform: scale(1.05);
+        }
+        
+        /* Piece images map */
+        .piece-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
 
         /* Status & Controls */
@@ -3628,9 +3549,6 @@
         // Timer interval
         let timerInterval = null;
 
-        // Chessboard.js instance
-        let chessBoard = null;
-
         // Settings
         let settings = {
             showCoords: true,
@@ -3646,13 +3564,6 @@
             initChessBoard();
             loadStats();
             checkCloneUnlock();
-            
-            // Handle window resize for responsive board
-            window.addEventListener('resize', () => {
-                if (chessBoard) {
-                    chessBoard.resize();
-                }
-            });
         });
 
         // ============== CURRENT GAME PERSISTENCE ==============
@@ -3738,42 +3649,9 @@
             localStorage.removeItem('aigambit_current_game');
         }
 
-        // Convert FEN to chessboard.js position format
-        function fenToPosition(fen) {
-            const pieces = parseFEN(fen);
-            const position = {};
-            for (const [square, piece] of Object.entries(pieces)) {
-                // Convert to chessboard.js format (wK, bQ, etc.)
-                const color = piece === piece.toUpperCase() ? 'w' : 'b';
-                const pieceType = piece.toUpperCase();
-                position[square] = color + pieceType;
-            }
-            return position;
-        }
-
-        // Initialize chessboard.js
+        // Initialize custom click-based chess board
         function initChessBoard() {
-            const config = {
-                draggable: true,
-                position: fenToPosition(game.fen),
-                orientation: game.flipped ? 'black' : 'white',
-                pieceTheme: 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/{piece}.svg',
-                onDragStart: onDragStart,
-                onDrop: onDrop,
-                onSnapEnd: onSnapEnd,
-                onMouseoverSquare: onMouseoverSquare,
-                onMouseoutSquare: onMouseoutSquare
-            };
-            
-            chessBoard = Chessboard('board', config);
-            
-            // Also set up click handling for mobile
-            $('#board').on('click', '.square-55d63', function() {
-                const square = $(this).attr('data-square');
-                if (square) {
-                    handleSquareClick(square);
-                }
-            });
+            createBoard();
             
             // If game was restored, update the UI
             if (game.moveHistory.length > 0) {
@@ -3797,161 +3675,70 @@
             }
         }
 
-        // Drag start handler
-        function onDragStart(source, piece, position, orientation) {
-            if (game.gameOver) return false;
-            
-            // Check if it's player's turn
-            if (game.gameMode !== 'multiplayer' && !game.isPlayerTurn) return false;
-            
-            // Check if the piece belongs to the player
-            const turn = game.fen.split(' ')[1];
-            if (game.gameMode === 'multiplayer') {
-                if ((turn === 'w' && piece.search(/^b/) !== -1) ||
-                    (turn === 'b' && piece.search(/^w/) !== -1)) {
-                    return false;
-                }
-            } else {
-                if ((game.playerColor === 'white' && piece.search(/^b/) !== -1) ||
-                    (game.playerColor === 'black' && piece.search(/^w/) !== -1)) {
-                    return false;
-                }
-            }
-            
-            // Fetch legal moves for highlighting (async but don't block drag)
-            fetchLegalMoves(source).then(() => {
-                // Show legal move highlights after fetching
-                if (settings.showLegalMoves) {
-                    game.legalMoves.forEach(move => {
-                        highlightSquare(move.to, move.is_capture);
-                    });
-                }
-            });
-            return true;
-        }
-
-        // Drop handler
-        async function onDrop(source, target) {
-            // Clear highlights
-            removeHighlights();
-            
-            // Ensure we have legal moves for this piece
-            if (game.legalMoves.length === 0 || game.legalMoves[0]?.from !== source) {
-                await fetchLegalMoves(source);
-            }
-            
-            // Check if valid move
-            const move = game.legalMoves.find(m => m.from === source && m.to === target);
-            if (!move) {
-                return 'snapback';
-            }
-            
-            // Check for promotion
-            if (isPromotion(source, target)) {
-                // Temporarily allow the drop, then show promotion modal
-                showPromotionModal(source, target);
-                return; // Let it stay, promotion modal will handle it
-            }
-            
-            // Make the move
-            await makeMove(move.uci);
-            return; // Allow the drop
-        }
-
-        // After piece snaps to square
-        function onSnapEnd() {
-            updateBoardPosition();
-        }
-
-        // Highlight legal moves on hover
-        function onMouseoverSquare(square, piece) {
-            if (!settings.showLegalMoves) return;
-            if (game.gameOver) return;
-            if (!game.isPlayerTurn && game.gameMode !== 'multiplayer') return;
-            
-            // Only highlight for player's pieces
-            if (!piece) return;
-            const isWhitePiece = piece.search(/^w/) !== -1;
-            if ((game.playerColor === 'white' && !isWhitePiece) ||
-                (game.playerColor === 'black' && isWhitePiece)) {
-                return;
-            }
-            
-            // Get and show legal moves
-            fetchLegalMoves(square).then(() => {
-                game.legalMoves.forEach(move => {
-                    highlightSquare(move.to, move.is_capture);
-                });
-            });
-        }
-
-        function onMouseoutSquare(square, piece) {
-            removeHighlights();
-        }
-
-        function highlightSquare(square, isCapture) {
-            const $square = $(`#board .square-55d63[data-square="${square}"]`);
-            if (isCapture) {
-                $square.addClass('highlight-capture');
-            } else {
-                $square.addClass('highlight-move');
-            }
-        }
-
-        function removeHighlights() {
-            $('#board .square-55d63').removeClass('highlight-move highlight-capture highlight-last-from highlight-last-to');
-        }
-
-        function highlightLastMove() {
-            if (!settings.highlightLastMove || game.moveHistory.length === 0) return;
-            const last = game.moveHistory[game.moveHistory.length - 1];
-            $(`#board .square-55d63[data-square="${last.from}"]`).addClass('highlight-last-from');
-            $(`#board .square-55d63[data-square="${last.to}"]`).addClass('highlight-last-to');
-        }
-
-        // Update board position from game state
-        function updateBoardPosition() {
-            if (chessBoard) {
-                const position = fenToPosition(game.fen);
-                chessBoard.position(position, true); // Enable animation
-                setTimeout(() => {
-                    highlightLastMove();
-                }, 100);
-            }
-        }
-
-        // Flip board orientation
-        function flipBoard() {
-            game.flipped = !game.flipped;
-            if (chessBoard) {
-                chessBoard.orientation(game.flipped ? 'black' : 'white');
-            }
-        }
-
-        // Legacy createBoard for compatibility
+        // Create the board with click-to-move
         function createBoard() {
-            if (chessBoard) {
-                // Update position and orientation
-                chessBoard.orientation(game.flipped ? 'black' : 'white');
-                chessBoard.position(fenToPosition(game.fen), false);
-                setTimeout(() => {
-                    highlightLastMove();
-                }, 50);
-            } else {
-                initChessBoard();
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            
+            const pieces = parseFEN(game.fen);
+            const ranks = game.flipped ? [1,2,3,4,5,6,7,8] : [8,7,6,5,4,3,2,1];
+            const files = game.flipped ? ['h','g','f','e','d','c','b','a'] : ['a','b','c','d','e','f','g','h'];
+            
+            for (const rank of ranks) {
+                for (const file of files) {
+                    const square = file + rank;
+                    const isLight = (file.charCodeAt(0) + rank) % 2 === 1;
+                    
+                    const div = document.createElement('div');
+                    div.className = `square ${isLight ? 'light' : 'dark'}`;
+                    div.dataset.square = square;
+                    
+                    // Add piece if present
+                    const piece = pieces[square];
+                    if (piece) {
+                        const img = document.createElement('img');
+                        img.src = PIECE_IMAGES[piece];
+                        img.className = 'piece';
+                        img.draggable = false;
+                        div.appendChild(img);
+                    }
+                    
+                    // Highlight selected square
+                    if (game.selectedSquare === square) {
+                        div.classList.add('selected');
+                    }
+                    
+                    // Highlight legal moves
+                    if (game.selectedSquare) {
+                        const move = game.legalMoves.find(m => m.to === square);
+                        if (move) {
+                            div.classList.add(move.is_capture ? 'legal-capture' : 'legal-move');
+                        }
+                    }
+                    
+                    // Highlight last move
+                    if (settings.highlightLastMove && game.moveHistory.length > 0) {
+                        const last = game.moveHistory[game.moveHistory.length - 1];
+                        if (square === last.from || square === last.to) {
+                            div.classList.add('last-move');
+                        }
+                    }
+                    
+                    // Click handler
+                    div.addEventListener('click', () => handleSquareClick(square));
+                    div.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        handleSquareClick(square);
+                    });
+                    
+                    board.appendChild(div);
+                }
             }
+            
+            updateCoordinates();
         }
 
-        function updateCoordinates() {
-            // Handled by chessboard.js, but keep for compatibility
-            const files = game.flipped ? 'hgfedcba' : 'abcdefgh';
-            const ranks = game.flipped ? '12345678' : '87654321';
-            const filesEl = document.getElementById('files');
-            const ranksEl = document.getElementById('ranks');
-            if (filesEl) filesEl.innerHTML = files.split('').map(f => `<span>${f}</span>`).join('');
-            if (ranksEl) ranksEl.innerHTML = ranks.split('').map(r => `<span>${r}</span>`).join('');
-        }
-
+        // Parse FEN to get pieces
         function parseFEN(fen) {
             const pieces = {};
             const [position] = fen.split(' ');
@@ -3972,68 +3759,84 @@
             return pieces;
         }
 
-        function renderPieces() {
-            // Update chessboard.js position
-            updateBoardPosition();
-            
-            // Also show legal move highlights
-            removeHighlights();
-            
-            if (settings.showLegalMoves && game.selectedSquare) {
-                game.legalMoves.forEach(move => {
-                    highlightSquare(move.to, move.is_capture);
-                });
-            }
-            
-            highlightLastMove();
+        // Update coordinates based on flip state
+        function updateCoordinates() {
+            const files = game.flipped ? 'hgfedcba' : 'abcdefgh';
+            const ranks = game.flipped ? '12345678' : '87654321';
+            const filesEl = document.getElementById('files');
+            const ranksEl = document.getElementById('ranks');
+            if (filesEl) filesEl.innerHTML = files.split('').map(f => `<span>${f}</span>`).join('');
+            if (ranksEl) ranksEl.innerHTML = ranks.split('').map(r => `<span>${r}</span>`).join('');
         }
 
+        // Flip board
+        function flipBoard() {
+            game.flipped = !game.flipped;
+            createBoard();
+        }
+
+        // Render pieces (just recreates the board)
+        function renderPieces() {
+            createBoard();
+        }
+
+        // Handle square click for move selection
         async function handleSquareClick(squareId) {
             if (game.gameOver) return;
             
-            // For multiplayer, always allow moves
+            // For multiplayer, always allow moves based on turn
             if (game.gameMode !== 'multiplayer' && !game.isPlayerTurn) return;
 
+            const pieces = parseFEN(game.fen);
+            const piece = pieces[squareId];
+            const turn = game.fen.split(' ')[1];
+
+            // If a piece is already selected
             if (game.selectedSquare) {
                 const move = game.legalMoves.find(m => m.to === squareId);
                 if (move) {
+                    // Valid move destination
                     if (isPromotion(game.selectedSquare, squareId)) {
                         showPromotionModal(game.selectedSquare, squareId);
                     } else {
                         await makeMove(move.uci);
                     }
+                    game.selectedSquare = null;
+                    game.legalMoves = [];
+                    createBoard();
+                    return;
+                } else if (piece && isPieceOurs(piece, turn)) {
+                    // Clicked on another of our pieces - select it instead
+                    game.selectedSquare = squareId;
+                    await fetchLegalMoves(squareId);
+                    createBoard();
+                    return;
+                } else {
+                    // Clicked empty square or opponent's piece (not valid move)
+                    game.selectedSquare = null;
+                    game.legalMoves = [];
+                    createBoard();
                     return;
                 }
             }
 
-            const pieces = parseFEN(game.fen);
-            const piece = pieces[squareId];
-
-            // Determine if this is our piece based on game mode
-            let isOurPiece = false;
-            if (game.gameMode === 'multiplayer') {
-                // In multiplayer, check whose turn it is
-                const turn = game.fen.split(' ')[1];
-                isOurPiece = piece && (
-                    (turn === 'w' && piece === piece.toUpperCase()) ||
-                    (turn === 'b' && piece === piece.toLowerCase())
-                );
-            } else {
-                isOurPiece = piece && (
-                    (game.playerColor === 'white' && piece === piece.toUpperCase()) ||
-                    (game.playerColor === 'black' && piece === piece.toLowerCase())
-                );
-            }
-
-            if (isOurPiece) {
+            // No piece selected yet - try to select one
+            if (piece && isPieceOurs(piece, turn)) {
                 game.selectedSquare = squareId;
                 await fetchLegalMoves(squareId);
-            } else {
-                game.selectedSquare = null;
-                game.legalMoves = [];
+                createBoard();
             }
+        }
 
-            renderPieces();
+        // Check if a piece belongs to the current player
+        function isPieceOurs(piece, turn) {
+            if (game.gameMode === 'multiplayer') {
+                const isWhite = piece === piece.toUpperCase();
+                return (turn === 'w' && isWhite) || (turn === 'b' && !isWhite);
+            } else {
+                const isWhite = piece === piece.toUpperCase();
+                return (game.playerColor === 'white' && isWhite) || (game.playerColor === 'black' && !isWhite);
+            }
         }
 
         function isPromotion(from, to) {
@@ -4656,10 +4459,7 @@
 
             closeGameModeModal();
             
-            // Update chessboard orientation based on player color
-            if (chessBoard) {
-                chessBoard.orientation(game.flipped ? 'black' : 'white');
-            }
+            // Create the board with new orientation
             createBoard();
             document.getElementById('moves-list').innerHTML = '';
             document.getElementById('white-captured').innerHTML = '';
