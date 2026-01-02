@@ -3642,6 +3642,7 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             checkAuth(); // Check if user is logged in
+            restoreCurrentGame(); // Restore game in progress if any
             initChessBoard();
             loadStats();
             checkCloneUnlock();
@@ -3653,6 +3654,89 @@
                 }
             });
         });
+
+        // ============== CURRENT GAME PERSISTENCE ==============
+        function saveCurrentGame() {
+            // Only save if game is in progress (not over and has moves)
+            if (game.gameOver) {
+                localStorage.removeItem('aigambit_current_game');
+                return;
+            }
+            
+            const gameState = {
+                fen: game.fen,
+                playerColor: game.playerColor,
+                engineSkill: game.engineSkill,
+                moveHistory: game.moveHistory,
+                gameOver: game.gameOver,
+                flipped: game.flipped,
+                gameMode: game.gameMode,
+                timeControl: game.timeControl,
+                playerTime: game.playerTime,
+                opponentTime: game.opponentTime,
+                capturedByWhite: game.capturedByWhite,
+                capturedByBlack: game.capturedByBlack,
+                coachEnabled: game.coachEnabled,
+                moveQualities: game.moveQualities,
+                totalCPL: game.totalCPL,
+                isPlayerTurn: game.isPlayerTurn,
+                timestamp: Date.now()
+            };
+            
+            localStorage.setItem('aigambit_current_game', JSON.stringify(gameState));
+        }
+        
+        function restoreCurrentGame() {
+            const saved = localStorage.getItem('aigambit_current_game');
+            if (!saved) return false;
+            
+            try {
+                const gameState = JSON.parse(saved);
+                
+                // Check if saved game is less than 24 hours old
+                if (Date.now() - gameState.timestamp > 24 * 60 * 60 * 1000) {
+                    localStorage.removeItem('aigambit_current_game');
+                    return false;
+                }
+                
+                // Don't restore online games (they need reconnection)
+                if (gameState.gameMode === 'online') {
+                    localStorage.removeItem('aigambit_current_game');
+                    return false;
+                }
+                
+                // Restore game state
+                game.fen = gameState.fen;
+                game.playerColor = gameState.playerColor;
+                game.engineSkill = gameState.engineSkill;
+                game.moveHistory = gameState.moveHistory || [];
+                game.gameOver = gameState.gameOver || false;
+                game.flipped = gameState.flipped || false;
+                game.gameMode = gameState.gameMode || 'engine';
+                game.timeControl = gameState.timeControl || 600;
+                game.playerTime = gameState.playerTime || 600;
+                game.opponentTime = gameState.opponentTime || 600;
+                game.capturedByWhite = gameState.capturedByWhite || [];
+                game.capturedByBlack = gameState.capturedByBlack || [];
+                game.coachEnabled = gameState.coachEnabled !== undefined ? gameState.coachEnabled : true;
+                game.moveQualities = gameState.moveQualities || [];
+                game.totalCPL = gameState.totalCPL || 0;
+                game.isPlayerTurn = gameState.isPlayerTurn !== undefined ? gameState.isPlayerTurn : true;
+                game.selectedSquare = null;
+                game.legalMoves = [];
+                
+                console.log('Game restored from localStorage');
+                return true;
+            } catch (err) {
+                console.error('Error restoring game:', err);
+                localStorage.removeItem('aigambit_current_game');
+                return false;
+            }
+        }
+        
+        function clearCurrentGame() {
+            localStorage.removeItem('aigambit_current_game');
+        }
 
         // Convert FEN to chessboard.js position format
         function fenToPosition(fen) {
@@ -3672,7 +3756,7 @@
             const config = {
                 draggable: true,
                 position: fenToPosition(game.fen),
-                orientation: game.playerColor,
+                orientation: game.flipped ? 'black' : 'white',
                 pieceTheme: 'https://lichess1.org/assets/_D1bSU0/piece/cburnett/{piece}.svg',
                 onDragStart: onDragStart,
                 onDrop: onDrop,
@@ -3690,6 +3774,27 @@
                     handleSquareClick(square);
                 }
             });
+            
+            // If game was restored, update the UI
+            if (game.moveHistory.length > 0) {
+                updateMovesList();
+                updateCapturedPieces();
+                updateTimerDisplay();
+                
+                // Update status based on game state
+                if (game.gameMode === 'multiplayer') {
+                    const turn = game.fen.split(' ')[1];
+                    updateStatus(turn === 'w' ? '⬜ White to move' : '⬛ Black to move');
+                } else if (game.gameMode === 'clone') {
+                    updateStatus(game.isPlayerTurn ? '♟ Your turn' : '🧬 Clone is thinking...');
+                    document.getElementById('opponent-name').textContent = 'Your Clone';
+                    document.getElementById('engine-level').textContent = '🧬 AI Clone';
+                } else {
+                    updateStatus(game.isPlayerTurn ? '♟ Your turn' : '🤔 AI is thinking...');
+                    document.getElementById('opponent-name').textContent = 'Stockfish AI';
+                    document.getElementById('engine-level').textContent = 'Level ' + game.engineSkill;
+                }
+            }
         }
 
         // Drag start handler
@@ -4053,6 +4158,9 @@
                     renderPieces();
                     updateCapturedPieces();
                     updateTimerDisplay();
+                    
+                    // Save game state for persistence across refresh
+                    saveCurrentGame();
                 } else {
                     updateStatus('❌ Invalid move');
                     game.isPlayerTurn = true;
@@ -4373,6 +4481,9 @@
 
             document.getElementById('final-moves').textContent = game.moveHistory.length;
             document.getElementById('game-over-modal').classList.add('active');
+            
+            // Clear saved game since it's over
+            clearCurrentGame();
 
             if (game.gameMode !== 'multiplayer') {
                 saveGameResult(normalizedResult);
@@ -4518,6 +4629,9 @@
 
             // Stop any existing timer
             stopTimer();
+            
+            // Clear any saved game when starting fresh
+            clearCurrentGame();
 
             game = {
                 fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
