@@ -1117,6 +1117,127 @@ def on_leave_tournament_room(data):
         leave_room(f'tournament_{tournament_id}')
 
 # ============== LICHESS CLOUD API ==============
+def get_lichess_analysis(fen, move_uci):
+    """
+    Analyze a player's move using Lichess Cloud API.
+    Returns quality assessment and centipawn loss.
+    """
+    try:
+        board = chess.Board(fen)
+        
+        # Get evaluation before the move
+        url_before = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen)}&multiPv=3"
+        response_before = requests.get(url_before, timeout=5, headers={'Accept': 'application/json'})
+        
+        if response_before.status_code != 200:
+            return None
+            
+        data_before = response_before.json()
+        
+        if 'pvs' not in data_before or len(data_before['pvs']) == 0:
+            return None
+        
+        # Get best move and its evaluation
+        best_pv = data_before['pvs'][0]
+        best_move_uci = best_pv['moves'].split()[0] if best_pv['moves'] else None
+        best_eval = best_pv.get('cp', 0)
+        
+        # Handle mate scores
+        if 'mate' in best_pv:
+            mate_in = best_pv['mate']
+            best_eval = 10000 if mate_in > 0 else -10000
+        
+        # Check if player's move matches best move
+        if move_uci == best_move_uci:
+            return {
+                'quality': 'best',
+                'cpl': 0,
+                'best_move': None
+            }
+        
+        # Make the player's move and get new position evaluation
+        try:
+            move = chess.Move.from_uci(move_uci)
+            if move not in board.legal_moves:
+                return None
+            board.push(move)
+        except:
+            return None
+        
+        new_fen = board.fen()
+        url_after = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(new_fen)}&multiPv=1"
+        response_after = requests.get(url_after, timeout=5, headers={'Accept': 'application/json'})
+        
+        if response_after.status_code != 200:
+            # If no cloud eval for this position, estimate based on move type
+            return estimate_move_quality(chess.Board(fen), move, best_move_uci)
+        
+        data_after = response_after.json()
+        
+        if 'pvs' not in data_after or len(data_after['pvs']) == 0:
+            return estimate_move_quality(chess.Board(fen), move, best_move_uci)
+        
+        after_pv = data_after['pvs'][0]
+        after_eval = after_pv.get('cp', 0)
+        
+        if 'mate' in after_pv:
+            mate_in = after_pv['mate']
+            after_eval = 10000 if mate_in > 0 else -10000
+        
+        # Negate after_eval since it's from opponent's perspective
+        after_eval = -after_eval
+        
+        # Calculate centipawn loss
+        cpl = max(0, best_eval - after_eval)
+        
+        # Determine quality
+        if cpl <= 10:
+            quality = 'excellent'
+        elif cpl <= 25:
+            quality = 'good'
+        elif cpl <= 50:
+            quality = 'inaccuracy'
+        elif cpl <= 100:
+            quality = 'mistake'
+        else:
+            quality = 'blunder'
+        
+        return {
+            'quality': quality,
+            'cpl': cpl,
+            'best_move': best_move_uci if quality in ['inaccuracy', 'mistake', 'blunder'] else None
+        }
+        
+    except Exception as e:
+        print(f"Lichess analysis error: {e}")
+        return None
+
+def estimate_move_quality(board, move, best_move_uci):
+    """
+    Estimate move quality without full engine analysis.
+    Used when Lichess cloud doesn't have the position cached.
+    """
+    # Get basic move info
+    is_capture = board.is_capture(move)
+    gives_check = board.gives_check(move)
+    
+    # If it's a check or capture, likely decent
+    if gives_check:
+        return {'quality': 'good', 'cpl': 15, 'best_move': best_move_uci}
+    elif is_capture:
+        # Check if it's a good capture (capturing higher value piece)
+        captured = board.piece_at(move.to_square)
+        moving = board.piece_at(move.from_square)
+        if captured and moving:
+            piece_values = {'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0}
+            cap_val = piece_values.get(captured.symbol().lower(), 0)
+            mov_val = piece_values.get(moving.symbol().lower(), 0)
+            if cap_val >= mov_val:
+                return {'quality': 'good', 'cpl': 20, 'best_move': best_move_uci}
+    
+    # Default to unknown but with a reasonable estimate
+    return {'quality': 'good', 'cpl': 30, 'best_move': best_move_uci}
+
 def get_lichess_move(fen, skill=10):
     """
     Get a move from Lichess Cloud API (free, no API key needed).
@@ -2521,9 +2642,17 @@ def get_tips():
     return jsonify({'success': True, 'tips': tips})
 
 def analyze_move(board, move, skill=10):
-    """Analyze quality of a move - fast version"""
+    """Analyze quality of a move - uses Lichess API fallback when no engine"""
+    fen_before = board.fen()
+    move_uci = move.uci()
+    
+    # Try Lichess API first if no local engine
     if not engine:
-        return {'quality': 'unknown', 'cpl': 0}
+        result = get_lichess_analysis(fen_before, move_uci)
+        if result:
+            return result
+        # Fallback to heuristic analysis
+        return estimate_move_quality(board, move, None)
     
     with engine_lock:
         try:
@@ -2573,7 +2702,12 @@ def analyze_move(board, move, skill=10):
         except Exception as e:
             print(f"Analysis error: {e}")
     
-    return {'quality': 'unknown', 'cpl': 0}
+    # Fallback to Lichess API if engine analysis failed
+    result = get_lichess_analysis(fen_before, move_uci)
+    if result:
+        return result
+    
+    return estimate_move_quality(board, move, None)
 
 def get_cp_score(score, is_white_perspective):
     """Get centipawn score from perspective"""
