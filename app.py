@@ -23,7 +23,7 @@ import random
 import requests
 import hashlib
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 app = Flask(__name__)
@@ -61,6 +61,15 @@ class User(db.Model):
     rating = db.Column(db.Integer, default=1200)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # Email verification
+    email_verified = db.Column(db.Boolean, default=False)
+    email_verify_token = db.Column(db.String(64), nullable=True)
+    email_verify_expires = db.Column(db.DateTime, nullable=True)
+    
+    # Password reset
+    password_reset_token = db.Column(db.String(64), nullable=True)
+    password_reset_expires = db.Column(db.DateTime, nullable=True)
+    
     # Store complex data as JSON
     stats = db.Column(db.Text, default='{}')  # JSON string
     games = db.Column(db.Text, default='[]')  # JSON string
@@ -74,6 +83,7 @@ class User(db.Model):
             'email': self.email,
             'password_hash': self.password_hash,
             'rating': self.rating,
+            'email_verified': self.email_verified,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'stats': json.loads(self.stats or '{}'),
             'games': json.loads(self.games or '[]'),
@@ -184,6 +194,148 @@ LEADERBOARD_FILE = os.path.join(os.path.dirname(__file__), 'global_leaderboard.j
 
 # ============== USER AUTHENTICATION ==============
 
+# Email configuration - uses Resend API
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+APP_URL = os.environ.get('APP_URL', 'https://aigambit.com')
+
+def generate_token():
+    """Generate a secure random token"""
+    return hashlib.sha256(os.urandom(32)).hexdigest()
+
+def send_email(to_email, subject, html_content):
+    """Send email using Resend API"""
+    if not RESEND_API_KEY:
+        print(f"Email not sent (no API key): {subject} to {to_email}")
+        return False
+    
+    try:
+        response = requests.post(
+            'https://api.resend.com/emails',
+            headers={
+                'Authorization': f'Bearer {RESEND_API_KEY}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'from': 'AIgambit <noreply@aigambit.com>',
+                'to': [to_email],
+                'subject': subject,
+                'html': html_content
+            },
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            print(f"Email sent: {subject} to {to_email}")
+            return True
+        else:
+            print(f"Email failed: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print(f"Email error: {e}")
+        return False
+
+def send_welcome_email(email, username, verify_token):
+    """Send welcome email with verification link"""
+    verify_url = f"{APP_URL}/verify-email?token={verify_token}"
+    
+    html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #1a1816; color: #ffffff; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 40px 20px; }}
+            .header {{ text-align: center; margin-bottom: 30px; }}
+            .logo {{ font-size: 32px; font-weight: bold; color: #81b64c; }}
+            .content {{ background: #262421; border-radius: 12px; padding: 30px; }}
+            h1 {{ color: #81b64c; margin-top: 0; }}
+            p {{ color: #b0ada8; line-height: 1.6; }}
+            .button {{ display: inline-block; background: #81b64c; color: #000000 !important; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 20px 0; }}
+            .footer {{ text-align: center; margin-top: 30px; color: #6f6b66; font-size: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="logo">♟️ AIgambit</div>
+            </div>
+            <div class="content">
+                <h1>Welcome to AIgambit, {username}! 🎉</h1>
+                <p>Thank you for joining AIgambit - your new home for chess!</p>
+                <p>Please verify your email address to unlock all features:</p>
+                <p style="text-align: center;">
+                    <a href="{verify_url}" class="button">✅ Verify Email</a>
+                </p>
+                <p>Or copy this link: <br><span style="color: #81b64c; word-break: break-all;">{verify_url}</span></p>
+                <p>This link expires in 24 hours.</p>
+                <p>Ready to play? Here's what you can do:</p>
+                <ul style="color: #b0ada8;">
+                    <li>🤖 Play against AI from beginner to grandmaster level</li>
+                    <li>🧬 Train your AI Clone that learns your style</li>
+                    <li>🌐 Play online against real players</li>
+                    <li>🏆 Join tournaments and climb the leaderboard</li>
+                </ul>
+            </div>
+            <div class="footer">
+                <p>© 2025 AIgambit.com - Play Chess, Improve, Compete</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
+    
+    return send_email(email, f"Welcome to AIgambit, {username}! Verify your email", html)
+
+def send_password_reset_email(email, username, reset_token):
+    """Send password reset email"""
+    reset_url = f"{APP_URL}/reset-password?token={reset_token}"
+    
+    html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #1a1816; color: #ffffff; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 40px 20px; }}
+            .header {{ text-align: center; margin-bottom: 30px; }}
+            .logo {{ font-size: 32px; font-weight: bold; color: #81b64c; }}
+            .content {{ background: #262421; border-radius: 12px; padding: 30px; }}
+            h1 {{ color: #81b64c; margin-top: 0; }}
+            p {{ color: #b0ada8; line-height: 1.6; }}
+            .button {{ display: inline-block; background: #81b64c; color: #000000 !important; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 20px 0; }}
+            .footer {{ text-align: center; margin-top: 30px; color: #6f6b66; font-size: 12px; }}
+            .warning {{ background: rgba(255, 107, 107, 0.2); border-left: 4px solid #ff6b6b; padding: 12px; margin: 20px 0; border-radius: 4px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="logo">♟️ AIgambit</div>
+            </div>
+            <div class="content">
+                <h1>Reset Your Password 🔐</h1>
+                <p>Hi {username},</p>
+                <p>We received a request to reset your password. Click the button below to create a new password:</p>
+                <p style="text-align: center;">
+                    <a href="{reset_url}" class="button">🔑 Reset Password</a>
+                </p>
+                <p>Or copy this link: <br><span style="color: #81b64c; word-break: break-all;">{reset_url}</span></p>
+                <p>This link expires in 1 hour.</p>
+                <div class="warning">
+                    <strong>⚠️ Didn't request this?</strong><br>
+                    If you didn't request a password reset, you can safely ignore this email. Your password won't be changed.
+                </div>
+            </div>
+            <div class="footer">
+                <p>© 2025 AIgambit.com - Play Chess, Improve, Compete</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
+    
+    return send_email(email, "Reset your AIgambit password", html)
+
 def hash_password(password):
     """Hash password with salt"""
     salt = 'aigambit_salt_2025'
@@ -241,11 +393,18 @@ def create_user(username, email, password):
         'sound_enabled': True
     }
     
+    # Generate email verification token
+    verify_token = generate_token()
+    verify_expires = datetime.utcnow() + timedelta(hours=24)
+    
     user = User(
         username=username,
         email=email.lower(),
         password_hash=hash_password(password),
         rating=1200,
+        email_verified=False,
+        email_verify_token=verify_token,
+        email_verify_expires=verify_expires,
         stats=json.dumps(default_stats),
         games=json.dumps([]),
         clone_model=json.dumps({}),
@@ -256,6 +415,10 @@ def create_user(username, email, password):
     try:
         db.session.add(user)
         db.session.commit()
+        
+        # Send welcome email with verification link
+        send_welcome_email(email.lower(), username, verify_token)
+        
         return user.to_dict(), None
     except Exception as e:
         db.session.rollback()
@@ -385,6 +548,127 @@ def logout():
     """Logout user"""
     session.pop('user', None)
     return jsonify({'success': True})
+
+@app.route('/api/auth/verify-email', methods=['POST'])
+def verify_email():
+    """Verify email with token"""
+    data = request.json
+    token = data.get('token', '').strip()
+    
+    if not token:
+        return jsonify({'success': False, 'error': 'Verification token required'})
+    
+    # Find user with this token
+    user = User.query.filter_by(email_verify_token=token).first()
+    
+    if not user:
+        return jsonify({'success': False, 'error': 'Invalid verification token'})
+    
+    if user.email_verify_expires and user.email_verify_expires < datetime.utcnow():
+        return jsonify({'success': False, 'error': 'Verification link has expired. Please request a new one.'})
+    
+    # Mark as verified
+    user.email_verified = True
+    user.email_verify_token = None
+    user.email_verify_expires = None
+    
+    try:
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Email verified successfully!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': 'Verification failed'})
+
+@app.route('/api/auth/resend-verification', methods=['POST'])
+def resend_verification():
+    """Resend email verification"""
+    data = request.json
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return jsonify({'success': False, 'error': 'Email required'})
+    
+    user = User.query.filter(db.func.lower(User.email) == email).first()
+    
+    if not user:
+        # Don't reveal if email exists
+        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a verification link.'})
+    
+    if user.email_verified:
+        return jsonify({'success': False, 'error': 'Email is already verified'})
+    
+    # Generate new token
+    user.email_verify_token = generate_token()
+    user.email_verify_expires = datetime.utcnow() + timedelta(hours=24)
+    
+    try:
+        db.session.commit()
+        send_welcome_email(user.email, user.username, user.email_verify_token)
+        return jsonify({'success': True, 'message': 'Verification email sent!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': 'Failed to send email'})
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    """Request password reset"""
+    data = request.json
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return jsonify({'success': False, 'error': 'Email required'})
+    
+    user = User.query.filter(db.func.lower(User.email) == email).first()
+    
+    # Always return success to prevent email enumeration
+    if not user:
+        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a password reset link.'})
+    
+    # Generate reset token
+    user.password_reset_token = generate_token()
+    user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+    
+    try:
+        db.session.commit()
+        send_password_reset_email(user.email, user.username, user.password_reset_token)
+        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a password reset link.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': 'Failed to process request'})
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    """Reset password with token"""
+    data = request.json
+    token = data.get('token', '').strip()
+    new_password = data.get('password', '')
+    
+    if not token or not new_password:
+        return jsonify({'success': False, 'error': 'Token and new password required'})
+    
+    if len(new_password) < 6:
+        return jsonify({'success': False, 'error': 'Password must be at least 6 characters'})
+    
+    # Find user with this token
+    user = User.query.filter_by(password_reset_token=token).first()
+    
+    if not user:
+        return jsonify({'success': False, 'error': 'Invalid reset token'})
+    
+    if user.password_reset_expires and user.password_reset_expires < datetime.utcnow():
+        return jsonify({'success': False, 'error': 'Reset link has expired. Please request a new one.'})
+    
+    # Update password
+    user.password_hash = hash_password(new_password)
+    user.password_reset_token = None
+    user.password_reset_expires = None
+    
+    try:
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Password reset successfully! You can now log in.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': 'Password reset failed'})
 
 @app.route('/api/auth/me', methods=['GET'])
 def get_me():
@@ -2328,6 +2612,305 @@ def learn():
 @app.route('/review')
 def review():
     return render_template('review.html')
+
+@app.route('/verify-email')
+def verify_email_page():
+    """Email verification page"""
+    token = request.args.get('token', '')
+    return f'''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Email - AIgambit</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Montserrat', sans-serif; background: #1a1816; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+        .container {{ max-width: 500px; padding: 40px; text-align: center; }}
+        .logo {{ font-size: 48px; margin-bottom: 20px; }}
+        .title {{ font-size: 28px; color: #81b64c; margin-bottom: 10px; }}
+        .card {{ background: #262421; border-radius: 16px; padding: 40px; margin-top: 20px; }}
+        .message {{ color: #b0ada8; margin-bottom: 20px; }}
+        .status {{ font-size: 60px; margin-bottom: 20px; }}
+        .success {{ color: #81b64c; }}
+        .error {{ color: #ff6b6b; }}
+        .btn {{ display: inline-block; background: #81b64c; color: #000; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 20px; }}
+        .btn:hover {{ background: #6fa33d; }}
+        .spinner {{ width: 60px; height: 60px; border: 4px solid #333; border-top-color: #81b64c; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px auto; }}
+        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">♟️</div>
+        <h1 class="title">AIgambit</h1>
+        <div class="card">
+            <div id="status-icon" class="spinner"></div>
+            <p id="message" class="message">Verifying your email...</p>
+            <a id="action-btn" href="/play" class="btn" style="display:none;">🎮 Start Playing</a>
+        </div>
+    </div>
+    <script>
+        const token = '{token}';
+        if (token) {{
+            fetch('/api/auth/verify-email', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ token }})
+            }})
+            .then(res => res.json())
+            .then(data => {{
+                const icon = document.getElementById('status-icon');
+                const msg = document.getElementById('message');
+                const btn = document.getElementById('action-btn');
+                
+                if (data.success) {{
+                    icon.innerHTML = '✅';
+                    icon.className = 'status success';
+                    msg.innerHTML = '<strong>Email Verified!</strong><br>Your account is now fully activated.';
+                    btn.style.display = 'inline-block';
+                }} else {{
+                    icon.innerHTML = '❌';
+                    icon.className = 'status error';
+                    msg.innerHTML = '<strong>Verification Failed</strong><br>' + (data.error || 'Invalid or expired link');
+                    btn.href = '/';
+                    btn.textContent = '🏠 Go Home';
+                    btn.style.display = 'inline-block';
+                }}
+            }})
+            .catch(err => {{
+                document.getElementById('status-icon').innerHTML = '❌';
+                document.getElementById('status-icon').className = 'status error';
+                document.getElementById('message').innerHTML = '<strong>Error</strong><br>Something went wrong';
+            }});
+        }} else {{
+            document.getElementById('status-icon').innerHTML = '❌';
+            document.getElementById('status-icon').className = 'status error';
+            document.getElementById('message').innerHTML = '<strong>Invalid Link</strong><br>No verification token provided';
+        }}
+    </script>
+</body>
+</html>
+'''
+
+@app.route('/reset-password')
+def reset_password_page():
+    """Password reset page"""
+    token = request.args.get('token', '')
+    return f'''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password - AIgambit</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Montserrat', sans-serif; background: #1a1816; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+        .container {{ max-width: 500px; padding: 40px; text-align: center; }}
+        .logo {{ font-size: 48px; margin-bottom: 20px; }}
+        .title {{ font-size: 28px; color: #81b64c; margin-bottom: 10px; }}
+        .card {{ background: #262421; border-radius: 16px; padding: 40px; margin-top: 20px; }}
+        .form-group {{ margin-bottom: 20px; text-align: left; }}
+        label {{ display: block; margin-bottom: 8px; color: #b0ada8; }}
+        input {{ width: 100%; padding: 14px; border: 2px solid #3d3a37; border-radius: 8px; background: #1a1816; color: #fff; font-size: 16px; }}
+        input:focus {{ outline: none; border-color: #81b64c; }}
+        .btn {{ width: 100%; background: #81b64c; color: #000; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 10px; }}
+        .btn:hover {{ background: #6fa33d; }}
+        .btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+        .message {{ padding: 12px; border-radius: 8px; margin-bottom: 20px; display: none; }}
+        .message.success {{ background: rgba(129, 182, 76, 0.2); color: #81b64c; }}
+        .message.error {{ background: rgba(255, 107, 107, 0.2); color: #ff6b6b; }}
+        .password-requirements {{ font-size: 12px; color: #6f6b66; margin-top: 8px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">♟️</div>
+        <h1 class="title">Reset Password</h1>
+        <div class="card">
+            <div id="message" class="message"></div>
+            <form id="reset-form">
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input type="password" id="password" placeholder="Enter new password" required>
+                    <p class="password-requirements">Must be at least 6 characters</p>
+                </div>
+                <div class="form-group">
+                    <label>Confirm Password</label>
+                    <input type="password" id="confirm-password" placeholder="Confirm new password" required>
+                </div>
+                <button type="submit" class="btn" id="submit-btn">🔑 Reset Password</button>
+            </form>
+            <a href="/play" id="play-btn" class="btn" style="display:none; margin-top:20px; text-decoration:none;">🎮 Go to Play</a>
+        </div>
+    </div>
+    <script>
+        const token = '{token}';
+        
+        document.getElementById('reset-form').addEventListener('submit', async (e) => {{
+            e.preventDefault();
+            
+            const password = document.getElementById('password').value;
+            const confirm = document.getElementById('confirm-password').value;
+            const msg = document.getElementById('message');
+            const btn = document.getElementById('submit-btn');
+            
+            if (password !== confirm) {{
+                msg.textContent = 'Passwords do not match';
+                msg.className = 'message error';
+                msg.style.display = 'block';
+                return;
+            }}
+            
+            if (password.length < 6) {{
+                msg.textContent = 'Password must be at least 6 characters';
+                msg.className = 'message error';
+                msg.style.display = 'block';
+                return;
+            }}
+            
+            btn.disabled = true;
+            btn.textContent = 'Resetting...';
+            
+            try {{
+                const res = await fetch('/api/auth/reset-password', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ token, password }})
+                }});
+                
+                const data = await res.json();
+                
+                if (data.success) {{
+                    msg.textContent = '✅ ' + data.message;
+                    msg.className = 'message success';
+                    msg.style.display = 'block';
+                    document.getElementById('reset-form').style.display = 'none';
+                    document.getElementById('play-btn').style.display = 'block';
+                }} else {{
+                    msg.textContent = '❌ ' + (data.error || 'Reset failed');
+                    msg.className = 'message error';
+                    msg.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = '🔑 Reset Password';
+                }}
+            }} catch (err) {{
+                msg.textContent = '❌ Something went wrong';
+                msg.className = 'message error';
+                msg.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = '🔑 Reset Password';
+            }}
+        }});
+        
+        if (!token) {{
+            document.getElementById('message').textContent = '❌ Invalid reset link';
+            document.getElementById('message').className = 'message error';
+            document.getElementById('message').style.display = 'block';
+            document.getElementById('reset-form').style.display = 'none';
+        }}
+    </script>
+</body>
+</html>
+'''
+
+@app.route('/forgot-password')
+def forgot_password_page():
+    """Forgot password request page"""
+    return '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forgot Password - AIgambit</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Montserrat', sans-serif; background: #1a1816; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .container { max-width: 500px; padding: 40px; text-align: center; }
+        .logo { font-size: 48px; margin-bottom: 20px; }
+        .title { font-size: 28px; color: #81b64c; margin-bottom: 10px; }
+        .subtitle { color: #b0ada8; margin-bottom: 20px; }
+        .card { background: #262421; border-radius: 16px; padding: 40px; margin-top: 20px; }
+        .form-group { margin-bottom: 20px; text-align: left; }
+        label { display: block; margin-bottom: 8px; color: #b0ada8; }
+        input { width: 100%; padding: 14px; border: 2px solid #3d3a37; border-radius: 8px; background: #1a1816; color: #fff; font-size: 16px; }
+        input:focus { outline: none; border-color: #81b64c; }
+        .btn { width: 100%; background: #81b64c; color: #000; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
+        .btn:hover { background: #6fa33d; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .message { padding: 12px; border-radius: 8px; margin-bottom: 20px; display: none; }
+        .message.success { background: rgba(129, 182, 76, 0.2); color: #81b64c; }
+        .message.error { background: rgba(255, 107, 107, 0.2); color: #ff6b6b; }
+        .back-link { margin-top: 20px; display: block; color: #81b64c; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">♟️</div>
+        <h1 class="title">Forgot Password?</h1>
+        <p class="subtitle">Enter your email and we'll send you a reset link</p>
+        <div class="card">
+            <div id="message" class="message"></div>
+            <form id="forgot-form">
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="email" placeholder="your@email.com" required>
+                </div>
+                <button type="submit" class="btn" id="submit-btn">📧 Send Reset Link</button>
+            </form>
+            <a href="/" class="back-link">← Back to Home</a>
+        </div>
+    </div>
+    <script>
+        document.getElementById('forgot-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const msg = document.getElementById('message');
+            const btn = document.getElementById('submit-btn');
+            
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            
+            try {
+                const res = await fetch('/api/auth/forgot-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    msg.innerHTML = '✅ Check your email!<br>If your email is registered, you will receive a password reset link.';
+                    msg.className = 'message success';
+                    msg.style.display = 'block';
+                    document.getElementById('forgot-form').style.display = 'none';
+                } else {
+                    msg.textContent = '❌ ' + (data.error || 'Request failed');
+                    msg.className = 'message error';
+                    msg.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = '📧 Send Reset Link';
+                }
+            } catch (err) {
+                msg.textContent = '❌ Something went wrong';
+                msg.className = 'message error';
+                msg.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = '📧 Send Reset Link';
+            }
+        });
+    </script>
+</body>
+</html>
+'''
 
 # ============== API ENDPOINTS ==============
 
