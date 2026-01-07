@@ -23,37 +23,55 @@ import random
 import requests
 import hashlib
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'aigambit_secret_key_2025_secure')
-
-# Database configuration - use PostgreSQL if DATABASE_URL is set, else SQLite for local dev
-database_url = os.environ.get('DATABASE_URL', '')
-if database_url.startswith('postgres://'):
-    # Railway uses postgres:// but SQLAlchemy needs postgresql://
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
-
-if database_url:
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-else:
-    # Local development - use SQLite
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///aigambit.db'
-
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('RAILWAY_ENVIRONMENT') is not None  # True on Railway
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('RAILWAY_ENVIRONMENT') is not None  # True for HTTPS on Railway
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
+# Database configuration - use PostgreSQL on Railway, SQLite locally
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    # Railway PostgreSQL - fix the URL format if needed
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+else:
+    # Local SQLite database
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.dirname(__file__), 'aigambit.db')
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+
 CORS(app, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Global engine instance
+engine = None
+engine_lock = threading.Lock()
+
+# Online games storage
+online_games = {}  # game_id -> game data
+waiting_players = []  # list of players waiting for match
+player_sessions = {}  # socket_id -> player data
+
+# Stats file paths (fallback for local dev)
+STATS_FILE = os.path.join(os.path.dirname(__file__), 'player_stats.json')
+GAMES_FILE = os.path.join(os.path.dirname(__file__), 'saved_games.json')
+PLAYER_STYLE_FILE = os.path.join(os.path.dirname(__file__), 'player_style.json')
+CLONE_MODEL_FILE = os.path.join(os.path.dirname(__file__), 'clone_model.json')
+USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
+TOURNAMENTS_FILE = os.path.join(os.path.dirname(__file__), 'tournaments.json')
+LEADERBOARD_FILE = os.path.join(os.path.dirname(__file__), 'global_leaderboard.json')
 
 # ============== DATABASE MODELS ==============
 
 class User(db.Model):
     __tablename__ = 'users'
+    
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False, index=True)
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
@@ -61,16 +79,7 @@ class User(db.Model):
     rating = db.Column(db.Integer, default=1200)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Email verification
-    email_verified = db.Column(db.Boolean, default=False)
-    email_verify_token = db.Column(db.String(64), nullable=True)
-    email_verify_expires = db.Column(db.DateTime, nullable=True)
-    
-    # Password reset
-    password_reset_token = db.Column(db.String(64), nullable=True)
-    password_reset_expires = db.Column(db.DateTime, nullable=True)
-    
-    # Store complex data as JSON
+    # JSON fields for complex data
     stats = db.Column(db.Text, default='{}')  # JSON string
     games = db.Column(db.Text, default='[]')  # JSON string
     clone_model = db.Column(db.Text, default='{}')  # JSON string
@@ -83,7 +92,6 @@ class User(db.Model):
             'email': self.email,
             'password_hash': self.password_hash,
             'rating': self.rating,
-            'email_verified': self.email_verified,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'stats': json.loads(self.stats or '{}'),
             'games': json.loads(self.games or '[]'),
@@ -94,6 +102,7 @@ class User(db.Model):
 
 class Tournament(db.Model):
     __tablename__ = 'tournaments'
+    
     id = db.Column(db.String(8), primary_key=True)
     name = db.Column(db.String(50), nullable=False)
     host = db.Column(db.String(20), nullable=False)
@@ -103,7 +112,7 @@ class Tournament(db.Model):
     increment = db.Column(db.Integer, default=0)
     start_time = db.Column(db.DateTime, nullable=True)
     max_players = db.Column(db.Integer, default=64)
-    total_rounds = db.Column(db.Integer, nullable=True)
+    total_rounds = db.Column(db.Integer, default=5)
     current_round = db.Column(db.Integer, default=0)
     status = db.Column(db.String(20), default='open')
     description = db.Column(db.Text, default='')
@@ -111,14 +120,15 @@ class Tournament(db.Model):
     started_at = db.Column(db.DateTime, nullable=True)
     ended_at = db.Column(db.DateTime, nullable=True)
     
-    # Store complex data as JSON
-    players = db.Column(db.Text, default='[]')  # JSON list of usernames
-    scores = db.Column(db.Text, default='{}')  # JSON dict
-    games_data = db.Column(db.Text, default='{}')  # JSON dict
-    pairings = db.Column(db.Text, default='{}')  # JSON dict
-    previous_pairings = db.Column(db.Text, default='[]')  # JSON list
-    bracket = db.Column(db.Text, nullable=True)  # JSON for knockout
-    final_standings = db.Column(db.Text, default='[]')  # JSON list
+    # JSON fields
+    players = db.Column(db.Text, default='[]')
+    scores = db.Column(db.Text, default='{}')
+    games = db.Column(db.Text, default='{}')
+    pairings = db.Column(db.Text, default='{}')
+    previous_pairings = db.Column(db.Text, default='[]')
+    bracket = db.Column(db.Text, nullable=True)
+    results = db.Column(db.Text, default='[]')
+    final_standings = db.Column(db.Text, nullable=True)
     
     def to_dict(self):
         return {
@@ -140,15 +150,17 @@ class Tournament(db.Model):
             'ended_at': self.ended_at.isoformat() if self.ended_at else None,
             'players': json.loads(self.players or '[]'),
             'scores': json.loads(self.scores or '{}'),
-            'games': json.loads(self.games_data or '{}'),
+            'games': json.loads(self.games or '{}'),
             'pairings': json.loads(self.pairings or '{}'),
             'previous_pairings': json.loads(self.previous_pairings or '[]'),
             'bracket': json.loads(self.bracket) if self.bracket else None,
-            'final_standings': json.loads(self.final_standings or '[]')
+            'results': json.loads(self.results or '[]'),
+            'final_standings': json.loads(self.final_standings) if self.final_standings else None
         }
 
-class LeaderboardEntry(db.Model):
+class Leaderboard(db.Model):
     __tablename__ = 'leaderboard'
+    
     username = db.Column(db.String(20), primary_key=True)
     total_points = db.Column(db.Integer, default=0)
     tournaments_played = db.Column(db.Integer, default=0)
@@ -156,7 +168,7 @@ class LeaderboardEntry(db.Model):
     total_games = db.Column(db.Integer, default=0)
     total_wins = db.Column(db.Integer, default=0)
     best_placement = db.Column(db.Integer, nullable=True)
-    history = db.Column(db.Text, default='[]')  # JSON list
+    history = db.Column(db.Text, default='[]')  # JSON string
     
     def to_dict(self):
         return {
@@ -174,167 +186,7 @@ class LeaderboardEntry(db.Model):
 with app.app_context():
     db.create_all()
 
-# Global engine instance
-engine = None
-engine_lock = threading.Lock()
-
-# Online games storage (in-memory, not persisted)
-online_games = {}  # game_id -> game data
-waiting_players = []  # list of players waiting for match
-player_sessions = {}  # socket_id -> player data
-
-# Legacy file paths (for backwards compatibility / local dev fallback)
-STATS_FILE = os.path.join(os.path.dirname(__file__), 'player_stats.json')
-GAMES_FILE = os.path.join(os.path.dirname(__file__), 'saved_games.json')
-PLAYER_STYLE_FILE = os.path.join(os.path.dirname(__file__), 'player_style.json')
-CLONE_MODEL_FILE = os.path.join(os.path.dirname(__file__), 'clone_model.json')
-USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
-TOURNAMENTS_FILE = os.path.join(os.path.dirname(__file__), 'tournaments.json')
-LEADERBOARD_FILE = os.path.join(os.path.dirname(__file__), 'global_leaderboard.json')
-
 # ============== USER AUTHENTICATION ==============
-
-# Email configuration - uses Resend API
-RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
-APP_URL = os.environ.get('APP_URL', 'https://aigambit.com')
-
-def generate_token():
-    """Generate a secure random token"""
-    return hashlib.sha256(os.urandom(32)).hexdigest()
-
-def send_email(to_email, subject, html_content):
-    """Send email using Resend API"""
-    if not RESEND_API_KEY:
-        print(f"Email not sent (no API key): {subject} to {to_email}")
-        return False
-    
-    try:
-        response = requests.post(
-            'https://api.resend.com/emails',
-            headers={
-                'Authorization': f'Bearer {RESEND_API_KEY}',
-                'Content-Type': 'application/json'
-            },
-            json={
-                'from': 'AIgambit <noreply@aigambit.com>',
-                'to': [to_email],
-                'subject': subject,
-                'html': html_content
-            },
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            print(f"Email sent: {subject} to {to_email}")
-            return True
-        else:
-            print(f"Email failed: {response.status_code} - {response.text}")
-            return False
-    except Exception as e:
-        print(f"Email error: {e}")
-        return False
-
-def send_welcome_email(email, username, verify_token):
-    """Send welcome email with verification link"""
-    verify_url = f"{APP_URL}/verify-email?token={verify_token}"
-    
-    html = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #1a1816; color: #ffffff; margin: 0; padding: 0; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 40px 20px; }}
-            .header {{ text-align: center; margin-bottom: 30px; }}
-            .logo {{ font-size: 32px; font-weight: bold; color: #81b64c; }}
-            .content {{ background: #262421; border-radius: 12px; padding: 30px; }}
-            h1 {{ color: #81b64c; margin-top: 0; }}
-            p {{ color: #b0ada8; line-height: 1.6; }}
-            .button {{ display: inline-block; background: #81b64c; color: #000000 !important; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 20px 0; }}
-            .footer {{ text-align: center; margin-top: 30px; color: #6f6b66; font-size: 12px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <div class="logo">♟️ AIgambit</div>
-            </div>
-            <div class="content">
-                <h1>Welcome to AIgambit, {username}! 🎉</h1>
-                <p>Thank you for joining AIgambit - your new home for chess!</p>
-                <p>Please verify your email address to unlock all features:</p>
-                <p style="text-align: center;">
-                    <a href="{verify_url}" class="button">✅ Verify Email</a>
-                </p>
-                <p>Or copy this link: <br><span style="color: #81b64c; word-break: break-all;">{verify_url}</span></p>
-                <p>This link expires in 24 hours.</p>
-                <p>Ready to play? Here's what you can do:</p>
-                <ul style="color: #b0ada8;">
-                    <li>🤖 Play against AI from beginner to grandmaster level</li>
-                    <li>🧬 Train your AI Clone that learns your style</li>
-                    <li>🌐 Play online against real players</li>
-                    <li>🏆 Join tournaments and climb the leaderboard</li>
-                </ul>
-            </div>
-            <div class="footer">
-                <p>© 2025 AIgambit.com - Play Chess, Improve, Compete</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    '''
-    
-    return send_email(email, f"Welcome to AIgambit, {username}! Verify your email", html)
-
-def send_password_reset_email(email, username, reset_token):
-    """Send password reset email"""
-    reset_url = f"{APP_URL}/reset-password?token={reset_token}"
-    
-    html = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #1a1816; color: #ffffff; margin: 0; padding: 0; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 40px 20px; }}
-            .header {{ text-align: center; margin-bottom: 30px; }}
-            .logo {{ font-size: 32px; font-weight: bold; color: #81b64c; }}
-            .content {{ background: #262421; border-radius: 12px; padding: 30px; }}
-            h1 {{ color: #81b64c; margin-top: 0; }}
-            p {{ color: #b0ada8; line-height: 1.6; }}
-            .button {{ display: inline-block; background: #81b64c; color: #000000 !important; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 20px 0; }}
-            .footer {{ text-align: center; margin-top: 30px; color: #6f6b66; font-size: 12px; }}
-            .warning {{ background: rgba(255, 107, 107, 0.2); border-left: 4px solid #ff6b6b; padding: 12px; margin: 20px 0; border-radius: 4px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <div class="logo">♟️ AIgambit</div>
-            </div>
-            <div class="content">
-                <h1>Reset Your Password 🔐</h1>
-                <p>Hi {username},</p>
-                <p>We received a request to reset your password. Click the button below to create a new password:</p>
-                <p style="text-align: center;">
-                    <a href="{reset_url}" class="button">🔑 Reset Password</a>
-                </p>
-                <p>Or copy this link: <br><span style="color: #81b64c; word-break: break-all;">{reset_url}</span></p>
-                <p>This link expires in 1 hour.</p>
-                <div class="warning">
-                    <strong>⚠️ Didn't request this?</strong><br>
-                    If you didn't request a password reset, you can safely ignore this email. Your password won't be changed.
-                </div>
-            </div>
-            <div class="footer">
-                <p>© 2025 AIgambit.com - Play Chess, Improve, Compete</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    '''
-    
-    return send_email(email, "Reset your AIgambit password", html)
 
 def hash_password(password):
     """Hash password with salt"""
@@ -352,17 +204,17 @@ def validate_username(username):
     return re.match(pattern, username) is not None
 
 def get_user(username):
-    """Get user by username (case-insensitive) - DATABASE VERSION"""
+    """Get user by username (case-insensitive) from database"""
     user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
     return user.to_dict() if user else None
 
 def get_user_by_email(email):
-    """Get user by email - DATABASE VERSION"""
+    """Get user by email from database"""
     user = User.query.filter(db.func.lower(User.email) == email.lower()).first()
     return user.to_dict() if user else None
 
 def create_user(username, email, password):
-    """Create a new user account - DATABASE VERSION"""
+    """Create a new user account in database"""
     # Check if username exists (case-insensitive)
     if User.query.filter(db.func.lower(User.username) == username.lower()).first():
         return None, "Username already taken"
@@ -379,6 +231,7 @@ def create_user(username, email, password):
         'draws': 0,
         'rating': 1200
     }
+    
     default_style = {
         'opening_moves': {},
         'piece_preferences': {},
@@ -386,6 +239,7 @@ def create_user(username, email, password):
         'time_usage': [],
         'risk_score': 50
     }
+    
     default_settings = {
         'board_theme': 'green',
         'piece_set': 'cburnett',
@@ -393,18 +247,11 @@ def create_user(username, email, password):
         'sound_enabled': True
     }
     
-    # Generate email verification token
-    verify_token = generate_token()
-    verify_expires = datetime.utcnow() + timedelta(hours=24)
-    
     user = User(
         username=username,
         email=email.lower(),
         password_hash=hash_password(password),
         rating=1200,
-        email_verified=False,
-        email_verify_token=verify_token,
-        email_verify_expires=verify_expires,
         stats=json.dumps(default_stats),
         games=json.dumps([]),
         clone_model=json.dumps({}),
@@ -412,44 +259,33 @@ def create_user(username, email, password):
         settings=json.dumps(default_settings)
     )
     
-    try:
-        db.session.add(user)
-        db.session.commit()
-        
-        # Send welcome email with verification link
-        send_welcome_email(email.lower(), username, verify_token)
-        
-        return user.to_dict(), None
-    except Exception as e:
-        db.session.rollback()
-        return None, str(e)
+    db.session.add(user)
+    db.session.commit()
+    
+    return user.to_dict(), None
 
 def update_user(username, updates):
-    """Update user data - DATABASE VERSION"""
+    """Update user data in database"""
     user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
-    if not user:
-        return False
-    
-    try:
-        if 'rating' in updates:
-            user.rating = updates['rating']
-        if 'stats' in updates:
-            user.stats = json.dumps(updates['stats'])
-        if 'games' in updates:
-            user.games = json.dumps(updates['games'])
-        if 'clone_model' in updates:
-            user.clone_model = json.dumps(updates['clone_model'])
-        if 'player_style' in updates:
-            user.player_style = json.dumps(updates['player_style'])
-        if 'settings' in updates:
-            user.settings = json.dumps(updates['settings'])
-        
+    if user:
+        for key, value in updates.items():
+            if key == 'stats':
+                user.stats = json.dumps(value)
+            elif key == 'games':
+                user.games = json.dumps(value)
+            elif key == 'clone_model':
+                user.clone_model = json.dumps(value)
+            elif key == 'player_style':
+                user.player_style = json.dumps(value)
+            elif key == 'settings':
+                user.settings = json.dumps(value)
+            elif key == 'rating':
+                user.rating = value
+            elif hasattr(user, key):
+                setattr(user, key, value)
         db.session.commit()
         return True
-    except Exception as e:
-        db.session.rollback()
-        print(f"Error updating user: {e}")
-        return False
+    return False
 
 def get_current_user():
     """Get currently logged in user from session"""
@@ -549,127 +385,6 @@ def logout():
     session.pop('user', None)
     return jsonify({'success': True})
 
-@app.route('/api/auth/verify-email', methods=['POST'])
-def verify_email():
-    """Verify email with token"""
-    data = request.json
-    token = data.get('token', '').strip()
-    
-    if not token:
-        return jsonify({'success': False, 'error': 'Verification token required'})
-    
-    # Find user with this token
-    user = User.query.filter_by(email_verify_token=token).first()
-    
-    if not user:
-        return jsonify({'success': False, 'error': 'Invalid verification token'})
-    
-    if user.email_verify_expires and user.email_verify_expires < datetime.utcnow():
-        return jsonify({'success': False, 'error': 'Verification link has expired. Please request a new one.'})
-    
-    # Mark as verified
-    user.email_verified = True
-    user.email_verify_token = None
-    user.email_verify_expires = None
-    
-    try:
-        db.session.commit()
-        return jsonify({'success': True, 'message': 'Email verified successfully!'})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': 'Verification failed'})
-
-@app.route('/api/auth/resend-verification', methods=['POST'])
-def resend_verification():
-    """Resend email verification"""
-    data = request.json
-    email = data.get('email', '').strip().lower()
-    
-    if not email:
-        return jsonify({'success': False, 'error': 'Email required'})
-    
-    user = User.query.filter(db.func.lower(User.email) == email).first()
-    
-    if not user:
-        # Don't reveal if email exists
-        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a verification link.'})
-    
-    if user.email_verified:
-        return jsonify({'success': False, 'error': 'Email is already verified'})
-    
-    # Generate new token
-    user.email_verify_token = generate_token()
-    user.email_verify_expires = datetime.utcnow() + timedelta(hours=24)
-    
-    try:
-        db.session.commit()
-        send_welcome_email(user.email, user.username, user.email_verify_token)
-        return jsonify({'success': True, 'message': 'Verification email sent!'})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': 'Failed to send email'})
-
-@app.route('/api/auth/forgot-password', methods=['POST'])
-def forgot_password():
-    """Request password reset"""
-    data = request.json
-    email = data.get('email', '').strip().lower()
-    
-    if not email:
-        return jsonify({'success': False, 'error': 'Email required'})
-    
-    user = User.query.filter(db.func.lower(User.email) == email).first()
-    
-    # Always return success to prevent email enumeration
-    if not user:
-        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a password reset link.'})
-    
-    # Generate reset token
-    user.password_reset_token = generate_token()
-    user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
-    
-    try:
-        db.session.commit()
-        send_password_reset_email(user.email, user.username, user.password_reset_token)
-        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a password reset link.'})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': 'Failed to process request'})
-
-@app.route('/api/auth/reset-password', methods=['POST'])
-def reset_password():
-    """Reset password with token"""
-    data = request.json
-    token = data.get('token', '').strip()
-    new_password = data.get('password', '')
-    
-    if not token or not new_password:
-        return jsonify({'success': False, 'error': 'Token and new password required'})
-    
-    if len(new_password) < 6:
-        return jsonify({'success': False, 'error': 'Password must be at least 6 characters'})
-    
-    # Find user with this token
-    user = User.query.filter_by(password_reset_token=token).first()
-    
-    if not user:
-        return jsonify({'success': False, 'error': 'Invalid reset token'})
-    
-    if user.password_reset_expires and user.password_reset_expires < datetime.utcnow():
-        return jsonify({'success': False, 'error': 'Reset link has expired. Please request a new one.'})
-    
-    # Update password
-    user.password_hash = hash_password(new_password)
-    user.password_reset_token = None
-    user.password_reset_expires = None
-    
-    try:
-        db.session.commit()
-        return jsonify({'success': True, 'message': 'Password reset successfully! You can now log in.'})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': 'Password reset failed'})
-
 @app.route('/api/auth/me', methods=['GET'])
 def get_me():
     """Get current logged in user"""
@@ -713,96 +428,59 @@ def update_profile():
 # ============== TOURNAMENT SYSTEM ==============
 
 def load_tournaments():
-    """Load all tournaments - DATABASE VERSION"""
+    """Load all tournaments from database as dict"""
     tournaments = Tournament.query.all()
     return {t.id: t.to_dict() for t in tournaments}
 
-def save_tournament(tournament_dict):
-    """Save or update a tournament - DATABASE VERSION"""
-    tid = tournament_dict['id']
-    tournament = Tournament.query.get(tid)
-    
-    if tournament:
-        # Update existing
-        tournament.name = tournament_dict.get('name', tournament.name)
-        tournament.status = tournament_dict.get('status', tournament.status)
-        tournament.current_round = tournament_dict.get('current_round', tournament.current_round)
-        tournament.players = json.dumps(tournament_dict.get('players', []))
-        tournament.scores = json.dumps(tournament_dict.get('scores', {}))
-        tournament.games_data = json.dumps(tournament_dict.get('games', {}))
-        tournament.pairings = json.dumps(tournament_dict.get('pairings', {}))
-        tournament.previous_pairings = json.dumps(tournament_dict.get('previous_pairings', []))
-        if tournament_dict.get('bracket'):
-            tournament.bracket = json.dumps(tournament_dict['bracket'])
-        if tournament_dict.get('final_standings'):
-            tournament.final_standings = json.dumps(tournament_dict['final_standings'])
-        if tournament_dict.get('started_at'):
-            tournament.started_at = datetime.fromisoformat(tournament_dict['started_at']) if isinstance(tournament_dict['started_at'], str) else tournament_dict['started_at']
-        if tournament_dict.get('ended_at'):
-            tournament.ended_at = datetime.fromisoformat(tournament_dict['ended_at']) if isinstance(tournament_dict['ended_at'], str) else tournament_dict['ended_at']
-    else:
-        # Create new
-        tournament = Tournament(
-            id=tid,
-            name=tournament_dict['name'],
-            host=tournament_dict['host'],
-            format=tournament_dict.get('format', 'swiss'),
-            time_control=tournament_dict.get('time_control', '10+0'),
-            base_time=tournament_dict.get('base_time', 600),
-            increment=tournament_dict.get('increment', 0),
-            start_time=datetime.fromisoformat(tournament_dict['start_time']) if tournament_dict.get('start_time') else None,
-            max_players=tournament_dict.get('max_players', 64),
-            total_rounds=tournament_dict.get('total_rounds'),
-            current_round=tournament_dict.get('current_round', 0),
-            status=tournament_dict.get('status', 'open'),
-            description=tournament_dict.get('description', ''),
-            players=json.dumps(tournament_dict.get('players', [])),
-            scores=json.dumps(tournament_dict.get('scores', {})),
-            games_data=json.dumps(tournament_dict.get('games', {})),
-            pairings=json.dumps(tournament_dict.get('pairings', {})),
-            previous_pairings=json.dumps(tournament_dict.get('previous_pairings', []))
-        )
+def save_tournament(tournament_data):
+    """Save or update a tournament in database"""
+    tournament = Tournament.query.get(tournament_data['id'])
+    if not tournament:
+        tournament = Tournament(id=tournament_data['id'])
         db.session.add(tournament)
     
-    try:
-        db.session.commit()
-        return True
-    except Exception as e:
-        db.session.rollback()
-        print(f"Error saving tournament: {e}")
-        return False
+    tournament.name = tournament_data.get('name', '')
+    tournament.host = tournament_data.get('host', '')
+    tournament.format = tournament_data.get('format', 'swiss')
+    tournament.time_control = tournament_data.get('time_control', '10+0')
+    tournament.base_time = tournament_data.get('base_time', 600)
+    tournament.increment = tournament_data.get('increment', 0)
+    tournament.start_time = datetime.fromisoformat(tournament_data['start_time']) if tournament_data.get('start_time') else None
+    tournament.max_players = tournament_data.get('max_players', 64)
+    tournament.total_rounds = tournament_data.get('total_rounds', 5)
+    tournament.current_round = tournament_data.get('current_round', 0)
+    tournament.status = tournament_data.get('status', 'open')
+    tournament.description = tournament_data.get('description', '')
+    tournament.started_at = datetime.fromisoformat(tournament_data['started_at']) if tournament_data.get('started_at') else None
+    tournament.ended_at = datetime.fromisoformat(tournament_data['ended_at']) if tournament_data.get('ended_at') else None
+    tournament.players = json.dumps(tournament_data.get('players', []))
+    tournament.scores = json.dumps(tournament_data.get('scores', {}))
+    tournament.games = json.dumps(tournament_data.get('games', {}))
+    tournament.pairings = json.dumps(tournament_data.get('pairings', {}))
+    tournament.previous_pairings = json.dumps(tournament_data.get('previous_pairings', []))
+    tournament.bracket = json.dumps(tournament_data.get('bracket')) if tournament_data.get('bracket') else None
+    tournament.results = json.dumps(tournament_data.get('results', []))
+    tournament.final_standings = json.dumps(tournament_data.get('final_standings')) if tournament_data.get('final_standings') else None
+    
+    db.session.commit()
 
 def delete_tournament(tournament_id):
-    """Delete a tournament - DATABASE VERSION"""
+    """Delete tournament from database"""
     tournament = Tournament.query.get(tournament_id)
     if tournament:
-        try:
-            db.session.delete(tournament)
-            db.session.commit()
-            return True
-        except:
-            db.session.rollback()
-    return False
+        db.session.delete(tournament)
+        db.session.commit()
 
 def load_leaderboard():
-    """Load global leaderboard - DATABASE VERSION"""
-    entries = LeaderboardEntry.query.all()
+    """Load global leaderboard from database as dict"""
+    entries = Leaderboard.query.all()
     return {e.username: e.to_dict() for e in entries}
 
-def update_leaderboard(username, tournament_id, placement, points):
-    """Update player's global leaderboard stats - DATABASE VERSION"""
-    entry = LeaderboardEntry.query.get(username)
-    
+def update_leaderboard_db(username, tournament_id, placement, points):
+    """Update player's global leaderboard stats in database"""
+    entry = Leaderboard.query.get(username)
     if not entry:
-        entry = LeaderboardEntry(
-            username=username,
-            total_points=0,
-            tournaments_played=0,
-            tournaments_won=0,
-            total_games=0,
-            total_wins=0,
-            history=json.dumps([])
-        )
+        entry = Leaderboard(username=username)
         db.session.add(entry)
     
     entry.total_points += points
@@ -821,10 +499,7 @@ def update_leaderboard(username, tournament_id, placement, points):
     })
     entry.history = json.dumps(history)
     
-    try:
-        db.session.commit()
-    except:
-        db.session.rollback()
+    db.session.commit()
 
 def generate_swiss_pairings(players, scores, round_num, previous_pairings):
     """
@@ -1226,12 +901,12 @@ def next_round(tournament_id):
     # Check if tournament should end
     if tournament['format'] == 'swiss':
         if current_round >= tournament['total_rounds']:
-            return end_tournament_internal(tournament)
+            return end_tournament_internal(tournament_id, tournaments)
     elif tournament['format'] == 'knockout':
         # Check if only one player remains
         remaining = [p for p in tournament['players'] if tournament['scores'].get(p, 0) > 0 or current_round == 1]
         if len(remaining) <= 1:
-            return end_tournament_internal(tournament)
+            return end_tournament_internal(tournament_id, tournaments)
     
     # Advance to next round
     tournament['current_round'] = current_round + 1
@@ -1272,11 +947,11 @@ def end_tournament(tournament_id):
     if user['username'] != tournament['host']:
         return jsonify({'success': False, 'error': 'Only the host can end the tournament'})
     
-    return end_tournament_internal(tournament)
+    return end_tournament_internal(tournament_id, tournaments)
 
-def end_tournament_internal(tournament):
+def end_tournament_internal(tournament_id, tournaments):
     """Internal function to end tournament and update leaderboard"""
-    tournament_id = tournament['id']
+    tournament = tournaments[tournament_id]
     tournament['status'] = 'completed'
     tournament['ended_at'] = datetime.now().isoformat()
     
@@ -1300,7 +975,7 @@ def end_tournament_internal(tournament):
         elif placement == 3:
             points += 10
         
-        update_leaderboard(username, tournament_id, placement, points)
+        update_leaderboard_db(username, tournament_id, placement, points)
     
     save_tournament(tournament)
     
@@ -1401,127 +1076,6 @@ def on_leave_tournament_room(data):
         leave_room(f'tournament_{tournament_id}')
 
 # ============== LICHESS CLOUD API ==============
-def get_lichess_analysis(fen, move_uci):
-    """
-    Analyze a player's move using Lichess Cloud API.
-    Returns quality assessment and centipawn loss.
-    """
-    try:
-        board = chess.Board(fen)
-        
-        # Get evaluation before the move
-        url_before = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen)}&multiPv=3"
-        response_before = requests.get(url_before, timeout=5, headers={'Accept': 'application/json'})
-        
-        if response_before.status_code != 200:
-            return None
-            
-        data_before = response_before.json()
-        
-        if 'pvs' not in data_before or len(data_before['pvs']) == 0:
-            return None
-        
-        # Get best move and its evaluation
-        best_pv = data_before['pvs'][0]
-        best_move_uci = best_pv['moves'].split()[0] if best_pv['moves'] else None
-        best_eval = best_pv.get('cp', 0)
-        
-        # Handle mate scores
-        if 'mate' in best_pv:
-            mate_in = best_pv['mate']
-            best_eval = 10000 if mate_in > 0 else -10000
-        
-        # Check if player's move matches best move
-        if move_uci == best_move_uci:
-            return {
-                'quality': 'best',
-                'cpl': 0,
-                'best_move': None
-            }
-        
-        # Make the player's move and get new position evaluation
-        try:
-            move = chess.Move.from_uci(move_uci)
-            if move not in board.legal_moves:
-                return None
-            board.push(move)
-        except:
-            return None
-        
-        new_fen = board.fen()
-        url_after = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(new_fen)}&multiPv=1"
-        response_after = requests.get(url_after, timeout=5, headers={'Accept': 'application/json'})
-        
-        if response_after.status_code != 200:
-            # If no cloud eval for this position, estimate based on move type
-            return estimate_move_quality(chess.Board(fen), move, best_move_uci)
-        
-        data_after = response_after.json()
-        
-        if 'pvs' not in data_after or len(data_after['pvs']) == 0:
-            return estimate_move_quality(chess.Board(fen), move, best_move_uci)
-        
-        after_pv = data_after['pvs'][0]
-        after_eval = after_pv.get('cp', 0)
-        
-        if 'mate' in after_pv:
-            mate_in = after_pv['mate']
-            after_eval = 10000 if mate_in > 0 else -10000
-        
-        # Negate after_eval since it's from opponent's perspective
-        after_eval = -after_eval
-        
-        # Calculate centipawn loss
-        cpl = max(0, best_eval - after_eval)
-        
-        # Determine quality
-        if cpl <= 10:
-            quality = 'excellent'
-        elif cpl <= 25:
-            quality = 'good'
-        elif cpl <= 50:
-            quality = 'inaccuracy'
-        elif cpl <= 100:
-            quality = 'mistake'
-        else:
-            quality = 'blunder'
-        
-        return {
-            'quality': quality,
-            'cpl': cpl,
-            'best_move': best_move_uci if quality in ['inaccuracy', 'mistake', 'blunder'] else None
-        }
-        
-    except Exception as e:
-        print(f"Lichess analysis error: {e}")
-        return None
-
-def estimate_move_quality(board, move, best_move_uci):
-    """
-    Estimate move quality without full engine analysis.
-    Used when Lichess cloud doesn't have the position cached.
-    """
-    # Get basic move info
-    is_capture = board.is_capture(move)
-    gives_check = board.gives_check(move)
-    
-    # If it's a check or capture, likely decent
-    if gives_check:
-        return {'quality': 'good', 'cpl': 15, 'best_move': best_move_uci}
-    elif is_capture:
-        # Check if it's a good capture (capturing higher value piece)
-        captured = board.piece_at(move.to_square)
-        moving = board.piece_at(move.from_square)
-        if captured and moving:
-            piece_values = {'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0}
-            cap_val = piece_values.get(captured.symbol().lower(), 0)
-            mov_val = piece_values.get(moving.symbol().lower(), 0)
-            if cap_val >= mov_val:
-                return {'quality': 'good', 'cpl': 20, 'best_move': best_move_uci}
-    
-    # Default to unknown but with a reasonable estimate
-    return {'quality': 'good', 'cpl': 30, 'best_move': best_move_uci}
-
 def get_lichess_move(fen, skill=10):
     """
     Get a move from Lichess Cloud API (free, no API key needed).
@@ -1678,10 +1232,9 @@ def save_stats(stats, username=None):
     if username:
         user = get_user(username)
         if user:
-            update_user(username, {
-                'stats': stats,
-                'rating': stats.get('rating', 1200)
-            })
+            user['stats'] = stats
+            user['rating'] = stats.get('rating', 1200)
+            update_user(username, user)
             return
     
     # Fall back to global stats file
@@ -1715,7 +1268,8 @@ def save_games(games, username=None):
     if username:
         user = get_user(username)
         if user:
-            update_user(username, {'games': games})
+            user['games'] = games
+            update_user(username, user)
             return
     
     # Fall back to global games file
@@ -1806,7 +1360,8 @@ def save_player_style(style, username=None):
     if username:
         user = get_user(username)
         if user:
-            update_user(username, {'player_style': style})
+            user['player_style'] = style
+            update_user(username, user)
             return
     
     # Fall back to global file
@@ -1838,7 +1393,8 @@ def save_clone_model(model, username=None):
     if username:
         user = get_user(username)
         if user:
-            update_user(username, {'clone_model': model})
+            user['clone_model'] = model
+            update_user(username, user)
             return
     
     # Fall back to global file
@@ -2613,305 +2169,6 @@ def learn():
 def review():
     return render_template('review.html')
 
-@app.route('/verify-email')
-def verify_email_page():
-    """Email verification page"""
-    token = request.args.get('token', '')
-    return f'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Email - AIgambit</title>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: 'Montserrat', sans-serif; background: #1a1816; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
-        .container {{ max-width: 500px; padding: 40px; text-align: center; }}
-        .logo {{ font-size: 48px; margin-bottom: 20px; }}
-        .title {{ font-size: 28px; color: #81b64c; margin-bottom: 10px; }}
-        .card {{ background: #262421; border-radius: 16px; padding: 40px; margin-top: 20px; }}
-        .message {{ color: #b0ada8; margin-bottom: 20px; }}
-        .status {{ font-size: 60px; margin-bottom: 20px; }}
-        .success {{ color: #81b64c; }}
-        .error {{ color: #ff6b6b; }}
-        .btn {{ display: inline-block; background: #81b64c; color: #000; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 20px; }}
-        .btn:hover {{ background: #6fa33d; }}
-        .spinner {{ width: 60px; height: 60px; border: 4px solid #333; border-top-color: #81b64c; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px auto; }}
-        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">♟️</div>
-        <h1 class="title">AIgambit</h1>
-        <div class="card">
-            <div id="status-icon" class="spinner"></div>
-            <p id="message" class="message">Verifying your email...</p>
-            <a id="action-btn" href="/play" class="btn" style="display:none;">🎮 Start Playing</a>
-        </div>
-    </div>
-    <script>
-        const token = '{token}';
-        if (token) {{
-            fetch('/api/auth/verify-email', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ token }})
-            }})
-            .then(res => res.json())
-            .then(data => {{
-                const icon = document.getElementById('status-icon');
-                const msg = document.getElementById('message');
-                const btn = document.getElementById('action-btn');
-                
-                if (data.success) {{
-                    icon.innerHTML = '✅';
-                    icon.className = 'status success';
-                    msg.innerHTML = '<strong>Email Verified!</strong><br>Your account is now fully activated.';
-                    btn.style.display = 'inline-block';
-                }} else {{
-                    icon.innerHTML = '❌';
-                    icon.className = 'status error';
-                    msg.innerHTML = '<strong>Verification Failed</strong><br>' + (data.error || 'Invalid or expired link');
-                    btn.href = '/';
-                    btn.textContent = '🏠 Go Home';
-                    btn.style.display = 'inline-block';
-                }}
-            }})
-            .catch(err => {{
-                document.getElementById('status-icon').innerHTML = '❌';
-                document.getElementById('status-icon').className = 'status error';
-                document.getElementById('message').innerHTML = '<strong>Error</strong><br>Something went wrong';
-            }});
-        }} else {{
-            document.getElementById('status-icon').innerHTML = '❌';
-            document.getElementById('status-icon').className = 'status error';
-            document.getElementById('message').innerHTML = '<strong>Invalid Link</strong><br>No verification token provided';
-        }}
-    </script>
-</body>
-</html>
-'''
-
-@app.route('/reset-password')
-def reset_password_page():
-    """Password reset page"""
-    token = request.args.get('token', '')
-    return f'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reset Password - AIgambit</title>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: 'Montserrat', sans-serif; background: #1a1816; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
-        .container {{ max-width: 500px; padding: 40px; text-align: center; }}
-        .logo {{ font-size: 48px; margin-bottom: 20px; }}
-        .title {{ font-size: 28px; color: #81b64c; margin-bottom: 10px; }}
-        .card {{ background: #262421; border-radius: 16px; padding: 40px; margin-top: 20px; }}
-        .form-group {{ margin-bottom: 20px; text-align: left; }}
-        label {{ display: block; margin-bottom: 8px; color: #b0ada8; }}
-        input {{ width: 100%; padding: 14px; border: 2px solid #3d3a37; border-radius: 8px; background: #1a1816; color: #fff; font-size: 16px; }}
-        input:focus {{ outline: none; border-color: #81b64c; }}
-        .btn {{ width: 100%; background: #81b64c; color: #000; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 10px; }}
-        .btn:hover {{ background: #6fa33d; }}
-        .btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
-        .message {{ padding: 12px; border-radius: 8px; margin-bottom: 20px; display: none; }}
-        .message.success {{ background: rgba(129, 182, 76, 0.2); color: #81b64c; }}
-        .message.error {{ background: rgba(255, 107, 107, 0.2); color: #ff6b6b; }}
-        .password-requirements {{ font-size: 12px; color: #6f6b66; margin-top: 8px; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">♟️</div>
-        <h1 class="title">Reset Password</h1>
-        <div class="card">
-            <div id="message" class="message"></div>
-            <form id="reset-form">
-                <div class="form-group">
-                    <label>New Password</label>
-                    <input type="password" id="password" placeholder="Enter new password" required>
-                    <p class="password-requirements">Must be at least 6 characters</p>
-                </div>
-                <div class="form-group">
-                    <label>Confirm Password</label>
-                    <input type="password" id="confirm-password" placeholder="Confirm new password" required>
-                </div>
-                <button type="submit" class="btn" id="submit-btn">🔑 Reset Password</button>
-            </form>
-            <a href="/play" id="play-btn" class="btn" style="display:none; margin-top:20px; text-decoration:none;">🎮 Go to Play</a>
-        </div>
-    </div>
-    <script>
-        const token = '{token}';
-        
-        document.getElementById('reset-form').addEventListener('submit', async (e) => {{
-            e.preventDefault();
-            
-            const password = document.getElementById('password').value;
-            const confirm = document.getElementById('confirm-password').value;
-            const msg = document.getElementById('message');
-            const btn = document.getElementById('submit-btn');
-            
-            if (password !== confirm) {{
-                msg.textContent = 'Passwords do not match';
-                msg.className = 'message error';
-                msg.style.display = 'block';
-                return;
-            }}
-            
-            if (password.length < 6) {{
-                msg.textContent = 'Password must be at least 6 characters';
-                msg.className = 'message error';
-                msg.style.display = 'block';
-                return;
-            }}
-            
-            btn.disabled = true;
-            btn.textContent = 'Resetting...';
-            
-            try {{
-                const res = await fetch('/api/auth/reset-password', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ token, password }})
-                }});
-                
-                const data = await res.json();
-                
-                if (data.success) {{
-                    msg.textContent = '✅ ' + data.message;
-                    msg.className = 'message success';
-                    msg.style.display = 'block';
-                    document.getElementById('reset-form').style.display = 'none';
-                    document.getElementById('play-btn').style.display = 'block';
-                }} else {{
-                    msg.textContent = '❌ ' + (data.error || 'Reset failed');
-                    msg.className = 'message error';
-                    msg.style.display = 'block';
-                    btn.disabled = false;
-                    btn.textContent = '🔑 Reset Password';
-                }}
-            }} catch (err) {{
-                msg.textContent = '❌ Something went wrong';
-                msg.className = 'message error';
-                msg.style.display = 'block';
-                btn.disabled = false;
-                btn.textContent = '🔑 Reset Password';
-            }}
-        }});
-        
-        if (!token) {{
-            document.getElementById('message').textContent = '❌ Invalid reset link';
-            document.getElementById('message').className = 'message error';
-            document.getElementById('message').style.display = 'block';
-            document.getElementById('reset-form').style.display = 'none';
-        }}
-    </script>
-</body>
-</html>
-'''
-
-@app.route('/forgot-password')
-def forgot_password_page():
-    """Forgot password request page"""
-    return '''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forgot Password - AIgambit</title>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Montserrat', sans-serif; background: #1a1816; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .container { max-width: 500px; padding: 40px; text-align: center; }
-        .logo { font-size: 48px; margin-bottom: 20px; }
-        .title { font-size: 28px; color: #81b64c; margin-bottom: 10px; }
-        .subtitle { color: #b0ada8; margin-bottom: 20px; }
-        .card { background: #262421; border-radius: 16px; padding: 40px; margin-top: 20px; }
-        .form-group { margin-bottom: 20px; text-align: left; }
-        label { display: block; margin-bottom: 8px; color: #b0ada8; }
-        input { width: 100%; padding: 14px; border: 2px solid #3d3a37; border-radius: 8px; background: #1a1816; color: #fff; font-size: 16px; }
-        input:focus { outline: none; border-color: #81b64c; }
-        .btn { width: 100%; background: #81b64c; color: #000; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
-        .btn:hover { background: #6fa33d; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .message { padding: 12px; border-radius: 8px; margin-bottom: 20px; display: none; }
-        .message.success { background: rgba(129, 182, 76, 0.2); color: #81b64c; }
-        .message.error { background: rgba(255, 107, 107, 0.2); color: #ff6b6b; }
-        .back-link { margin-top: 20px; display: block; color: #81b64c; text-decoration: none; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">♟️</div>
-        <h1 class="title">Forgot Password?</h1>
-        <p class="subtitle">Enter your email and we'll send you a reset link</p>
-        <div class="card">
-            <div id="message" class="message"></div>
-            <form id="forgot-form">
-                <div class="form-group">
-                    <label>Email Address</label>
-                    <input type="email" id="email" placeholder="your@email.com" required>
-                </div>
-                <button type="submit" class="btn" id="submit-btn">📧 Send Reset Link</button>
-            </form>
-            <a href="/" class="back-link">← Back to Home</a>
-        </div>
-    </div>
-    <script>
-        document.getElementById('forgot-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const email = document.getElementById('email').value;
-            const msg = document.getElementById('message');
-            const btn = document.getElementById('submit-btn');
-            
-            btn.disabled = true;
-            btn.textContent = 'Sending...';
-            
-            try {
-                const res = await fetch('/api/auth/forgot-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email })
-                });
-                
-                const data = await res.json();
-                
-                if (data.success) {
-                    msg.innerHTML = '✅ Check your email!<br>If your email is registered, you will receive a password reset link.';
-                    msg.className = 'message success';
-                    msg.style.display = 'block';
-                    document.getElementById('forgot-form').style.display = 'none';
-                } else {
-                    msg.textContent = '❌ ' + (data.error || 'Request failed');
-                    msg.className = 'message error';
-                    msg.style.display = 'block';
-                    btn.disabled = false;
-                    btn.textContent = '📧 Send Reset Link';
-                }
-            } catch (err) {
-                msg.textContent = '❌ Something went wrong';
-                msg.className = 'message error';
-                msg.style.display = 'block';
-                btn.disabled = false;
-                btn.textContent = '📧 Send Reset Link';
-            }
-        });
-    </script>
-</body>
-</html>
-'''
-
 # ============== API ENDPOINTS ==============
 
 @app.route('/api/stats', methods=['GET'])
@@ -3225,17 +2482,9 @@ def get_tips():
     return jsonify({'success': True, 'tips': tips})
 
 def analyze_move(board, move, skill=10):
-    """Analyze quality of a move - uses Lichess API fallback when no engine"""
-    fen_before = board.fen()
-    move_uci = move.uci()
-    
-    # Try Lichess API first if no local engine
+    """Analyze quality of a move - fast version"""
     if not engine:
-        result = get_lichess_analysis(fen_before, move_uci)
-        if result:
-            return result
-        # Fallback to heuristic analysis
-        return estimate_move_quality(board, move, None)
+        return {'quality': 'unknown', 'cpl': 0}
     
     with engine_lock:
         try:
@@ -3285,12 +2534,7 @@ def analyze_move(board, move, skill=10):
         except Exception as e:
             print(f"Analysis error: {e}")
     
-    # Fallback to Lichess API if engine analysis failed
-    result = get_lichess_analysis(fen_before, move_uci)
-    if result:
-        return result
-    
-    return estimate_move_quality(board, move, None)
+    return {'quality': 'unknown', 'cpl': 0}
 
 def get_cp_score(score, is_white_perspective):
     """Get centipawn score from perspective"""
