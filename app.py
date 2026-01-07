@@ -2482,59 +2482,192 @@ def get_tips():
     return jsonify({'success': True, 'tips': tips})
 
 def analyze_move(board, move, skill=10):
-    """Analyze quality of a move - fast version"""
-    if not engine:
-        return {'quality': 'unknown', 'cpl': 0}
+    """Analyze quality of a move - uses local engine or Lichess Cloud API"""
     
-    with engine_lock:
-        try:
-            # Fast analysis - just check if move matches engine's choice
-            best_move_info = engine.play(board, chess.engine.Limit(time=0.05))
-            best_move = best_move_info.move
-            
-            info_before = engine.analyse(board, chess.engine.Limit(depth=8))
-            score_before = info_before.get('score')
-            
-            board.push(move)
-            info_after = engine.analyse(board, chess.engine.Limit(depth=8))
-            score_after = info_after.get('score')
-            board.pop()
-            
-            if score_before and score_after:
-                eval_before = get_cp_score(score_before, board.turn)
+    # Try local engine first
+    if engine:
+        with engine_lock:
+            try:
+                # Fast analysis - just check if move matches engine's choice
+                best_move_info = engine.play(board, chess.engine.Limit(time=0.05))
+                best_move = best_move_info.move
                 
-                board.push(best_move)
-                info_best = engine.analyse(board, chess.engine.Limit(depth=6))
-                score_best = info_best.get('score')
+                info_before = engine.analyse(board, chess.engine.Limit(depth=8))
+                score_before = info_before.get('score')
+                
+                board.push(move)
+                info_after = engine.analyse(board, chess.engine.Limit(depth=8))
+                score_after = info_after.get('score')
                 board.pop()
                 
-                eval_best = get_cp_score(score_best, not board.turn) if score_best else eval_before
-                eval_after = get_cp_score(score_after, not board.turn)
-                
-                cpl = max(0, eval_best - eval_after)
-                
-                if move == best_move:
-                    quality = 'best'
-                elif cpl <= 10:
-                    quality = 'excellent'
-                elif cpl <= 25:
-                    quality = 'good'
-                elif cpl <= 50:
-                    quality = 'inaccuracy'
-                elif cpl <= 100:
-                    quality = 'mistake'
-                else:
-                    quality = 'blunder'
-                
-                return {
-                    'quality': quality,
-                    'cpl': cpl,
-                    'best_move': best_move.uci() if best_move != move else None
-                }
-        except Exception as e:
-            print(f"Analysis error: {e}")
+                if score_before and score_after:
+                    eval_before = get_cp_score(score_before, board.turn)
+                    
+                    board.push(best_move)
+                    info_best = engine.analyse(board, chess.engine.Limit(depth=6))
+                    score_best = info_best.get('score')
+                    board.pop()
+                    
+                    eval_best = get_cp_score(score_best, not board.turn) if score_best else eval_before
+                    eval_after = get_cp_score(score_after, not board.turn)
+                    
+                    cpl = max(0, eval_best - eval_after)
+                    
+                    if move == best_move:
+                        quality = 'best'
+                    elif cpl <= 10:
+                        quality = 'excellent'
+                    elif cpl <= 25:
+                        quality = 'good'
+                    elif cpl <= 50:
+                        quality = 'inaccuracy'
+                    elif cpl <= 100:
+                        quality = 'mistake'
+                    else:
+                        quality = 'blunder'
+                    
+                    return {
+                        'quality': quality,
+                        'cpl': cpl,
+                        'best_move': best_move.uci() if best_move != move else None
+                    }
+            except Exception as e:
+                print(f"Local engine analysis error: {e}")
     
-    return {'quality': 'unknown', 'cpl': 0}
+    # Fallback: Use Lichess Cloud API for analysis
+    return analyze_move_cloud(board, move)
+
+def analyze_move_cloud(board, move):
+    """Analyze move quality using Lichess Cloud Evaluation API"""
+    try:
+        fen_before = board.fen()
+        
+        # Get evaluation before the move
+        url_before = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen_before)}&multiPv=3"
+        response_before = requests.get(url_before, timeout=5, headers={'Accept': 'application/json'})
+        
+        if response_before.status_code != 200:
+            return analyze_move_heuristic(board, move)
+        
+        data_before = response_before.json()
+        if 'pvs' not in data_before or len(data_before['pvs']) == 0:
+            return analyze_move_heuristic(board, move)
+        
+        # Get best move and its evaluation
+        best_pv = data_before['pvs'][0]
+        best_move_uci = best_pv['moves'].split()[0] if best_pv.get('moves') else None
+        eval_before = best_pv.get('cp', 0)
+        if 'mate' in best_pv:
+            eval_before = 10000 if best_pv['mate'] > 0 else -10000
+        
+        # Adjust for perspective (Lichess returns from white's perspective)
+        if not board.turn:  # Black to move
+            eval_before = -eval_before
+        
+        # Make the move and get evaluation after
+        board.push(move)
+        fen_after = board.fen()
+        
+        url_after = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen_after)}&multiPv=1"
+        response_after = requests.get(url_after, timeout=5, headers={'Accept': 'application/json'})
+        board.pop()
+        
+        if response_after.status_code != 200:
+            # Can't get after eval, use heuristic based on best move match
+            if best_move_uci and move.uci() == best_move_uci:
+                return {'quality': 'best', 'cpl': 0, 'best_move': None}
+            elif best_move_uci:
+                return {'quality': 'good', 'cpl': 15, 'best_move': best_move_uci}
+            return analyze_move_heuristic(board, move)
+        
+        data_after = response_after.json()
+        if 'pvs' not in data_after or len(data_after['pvs']) == 0:
+            if best_move_uci and move.uci() == best_move_uci:
+                return {'quality': 'best', 'cpl': 0, 'best_move': None}
+            return analyze_move_heuristic(board, move)
+        
+        eval_after = data_after['pvs'][0].get('cp', 0)
+        if 'mate' in data_after['pvs'][0]:
+            eval_after = 10000 if data_after['pvs'][0]['mate'] > 0 else -10000
+        
+        # Adjust perspective (after move, it's opponent's turn)
+        if board.turn:  # Was white's move, now black to move
+            eval_after = -eval_after
+        
+        # Calculate centipawn loss
+        cpl = max(0, eval_before - eval_after)
+        
+        # Determine quality
+        if best_move_uci and move.uci() == best_move_uci:
+            quality = 'best'
+        elif cpl <= 10:
+            quality = 'excellent'
+        elif cpl <= 25:
+            quality = 'good'
+        elif cpl <= 50:
+            quality = 'inaccuracy'
+        elif cpl <= 100:
+            quality = 'mistake'
+        else:
+            quality = 'blunder'
+        
+        return {
+            'quality': quality,
+            'cpl': cpl,
+            'best_move': best_move_uci if best_move_uci != move.uci() else None
+        }
+        
+    except Exception as e:
+        print(f"Cloud analysis error: {e}")
+        return analyze_move_heuristic(board, move)
+
+def analyze_move_heuristic(board, move):
+    """Simple heuristic-based move analysis when no API is available"""
+    # Basic move quality assessment without engine
+    quality = 'good'
+    cpl = 0
+    
+    # Check if it's a capture
+    is_capture = board.is_capture(move)
+    
+    # Check if it gives check
+    board.push(move)
+    gives_check = board.is_check()
+    board.pop()
+    
+    # Check piece values for captures
+    if is_capture:
+        captured = board.piece_at(move.to_square)
+        moving_piece = board.piece_at(move.from_square)
+        if captured and moving_piece:
+            captured_value = {'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0}.get(captured.symbol().lower(), 0)
+            moving_value = {'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0}.get(moving_piece.symbol().lower(), 0)
+            
+            if captured_value > moving_value:
+                quality = 'excellent'  # Winning material
+            elif captured_value == moving_value:
+                quality = 'good'  # Even trade
+            else:
+                # Check if square is defended
+                quality = 'inaccuracy'  # Possibly losing trade
+                cpl = 30
+    
+    # Giving check is often good
+    if gives_check:
+        if quality == 'good':
+            quality = 'excellent'
+    
+    # Center control bonus for pawns/knights
+    to_file = move.to_square % 8
+    to_rank = move.to_square // 8
+    is_center = to_file in [3, 4] and to_rank in [3, 4]
+    
+    moving_piece = board.piece_at(move.from_square)
+    if moving_piece and moving_piece.symbol().lower() in ['p', 'n'] and is_center:
+        if quality == 'good':
+            quality = 'excellent'
+    
+    return {'quality': quality, 'cpl': cpl, 'best_move': None}
 
 def get_cp_score(score, is_white_perspective):
     """Get centipawn score from perspective"""
