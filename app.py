@@ -2517,11 +2517,11 @@ def analyze_move(board, move, skill=10):
                         quality = 'best'
                     elif cpl <= 10:
                         quality = 'excellent'
-                    elif cpl <= 25:
+                    elif cpl <= 30:
                         quality = 'good'
-                    elif cpl <= 50:
-                        quality = 'inaccuracy'
                     elif cpl <= 100:
+                        quality = 'inaccuracy'
+                    elif cpl <= 300:
                         quality = 'mistake'
                     else:
                         quality = 'blunder'
@@ -2597,16 +2597,16 @@ def analyze_move_cloud(board, move):
         # Calculate centipawn loss
         cpl = max(0, eval_before - eval_after)
         
-        # Determine quality
+        # Determine quality (thresholds aligned with chess_coach.py)
         if best_move_uci and move.uci() == best_move_uci:
             quality = 'best'
         elif cpl <= 10:
             quality = 'excellent'
-        elif cpl <= 25:
+        elif cpl <= 30:
             quality = 'good'
-        elif cpl <= 50:
-            quality = 'inaccuracy'
         elif cpl <= 100:
+            quality = 'inaccuracy'
+        elif cpl <= 300:
             quality = 'mistake'
         else:
             quality = 'blunder'
@@ -2622,52 +2622,149 @@ def analyze_move_cloud(board, move):
         return analyze_move_heuristic(board, move)
 
 def analyze_move_heuristic(board, move):
-    """Simple heuristic-based move analysis when no API is available"""
+    """Smart heuristic-based move analysis when no API is available"""
     # Basic move quality assessment without engine
     quality = 'good'
     cpl = 0
+    best_suggestion = None
     
     # Check if it's a capture
     is_capture = board.is_capture(move)
+    captured_piece = board.piece_at(move.to_square)
+    moving_piece = board.piece_at(move.from_square)
     
     # Check if it gives check
     board.push(move)
     gives_check = board.is_check()
+    is_checkmate = board.is_checkmate()
     board.pop()
     
-    # Check piece values for captures
-    if is_capture:
-        captured = board.piece_at(move.to_square)
-        moving_piece = board.piece_at(move.from_square)
-        if captured and moving_piece:
-            captured_value = {'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0}.get(captured.symbol().lower(), 0)
-            moving_value = {'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0}.get(moving_piece.symbol().lower(), 0)
-            
-            if captured_value > moving_value:
-                quality = 'excellent'  # Winning material
-            elif captured_value == moving_value:
+    # Checkmate is always the best!
+    if is_checkmate:
+        return {'quality': 'best', 'cpl': 0, 'best_move': None}
+    
+    # Check for obvious blunders - hanging pieces
+    piece_values = {'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 0}
+    
+    # Check if we're moving a piece to an attacked square
+    board.push(move)
+    to_square = move.to_square
+    attackers = board.attackers(not board.turn, to_square)
+    defenders = board.attackers(board.turn, to_square)
+    board.pop()
+    
+    moving_value = piece_values.get(moving_piece.symbol().lower(), 0) if moving_piece else 0
+    
+    # Check if we're hanging the piece we just moved
+    if attackers and not defenders:
+        # We're hanging the piece!
+        if moving_value >= 300:  # Knight or better
+            quality = 'blunder'
+            cpl = moving_value
+        elif moving_value >= 100:  # Pawn
+            quality = 'mistake'
+            cpl = moving_value
+    elif attackers and defenders:
+        # Check if we're making a bad trade
+        attacker_values = [piece_values.get(board.piece_at(sq).symbol().lower(), 0) for sq in attackers if board.piece_at(sq)]
+        if attacker_values and min(attacker_values) < moving_value:
+            # Opponent can capture with a less valuable piece
+            loss = moving_value - min(attacker_values)
+            if loss >= 200:
+                quality = 'mistake'
+                cpl = loss
+            elif loss >= 100:
+                quality = 'inaccuracy'
+                cpl = loss
+    
+    # Check for captures - evaluate the trade
+    if is_capture and captured_piece:
+        captured_value = piece_values.get(captured_piece.symbol().lower(), 0)
+        
+        if captured_value > moving_value + 50:
+            quality = 'excellent'  # Winning significant material
+            cpl = 0
+        elif captured_value >= moving_value - 50:
+            if quality == 'good':
                 quality = 'good'  # Even trade
-            else:
-                # Check if square is defended
-                quality = 'inaccuracy'  # Possibly losing trade
-                cpl = 30
+            cpl = 0
+        else:
+            # Losing trade
+            loss = moving_value - captured_value
+            if loss >= 200 and quality in ['good', 'excellent']:
+                quality = 'inaccuracy'
+                cpl = loss
     
     # Giving check is often good
     if gives_check:
-        if quality == 'good':
+        if quality in ['good', 'excellent']:
             quality = 'excellent'
     
-    # Center control bonus for pawns/knights
-    to_file = move.to_square % 8
-    to_rank = move.to_square // 8
-    is_center = to_file in [3, 4] and to_rank in [3, 4]
+    # Development bonus in opening (first 10 moves)
+    if board.fullmove_number <= 10:
+        # Developing pieces to good squares
+        to_file = move.to_square % 8
+        to_rank = move.to_square // 8
+        from_rank = move.from_square // 8
+        
+        # Center control
+        is_center = to_file in [3, 4] and to_rank in [3, 4]
+        is_extended_center = to_file in [2, 3, 4, 5] and to_rank in [2, 3, 4, 5]
+        
+        if moving_piece:
+            piece_type = moving_piece.symbol().lower()
+            
+            # Knights and bishops going to center
+            if piece_type in ['n', 'b'] and is_extended_center:
+                if quality == 'good':
+                    quality = 'excellent'
+            
+            # Pawn to center
+            if piece_type == 'p' and is_center:
+                if quality == 'good':
+                    quality = 'excellent'
+            
+            # Castling is usually good
+            if piece_type == 'k' and abs(move.to_square - move.from_square) == 2:
+                quality = 'excellent'
+            
+            # Moving same piece twice early is often inaccurate
+            # (Would need move history to check this properly)
     
-    moving_piece = board.piece_at(move.from_square)
-    if moving_piece and moving_piece.symbol().lower() in ['p', 'n'] and is_center:
-        if quality == 'good':
-            quality = 'excellent'
+    # Look for a simple "best move" suggestion
+    legal_moves = list(board.legal_moves)
     
-    return {'quality': quality, 'cpl': cpl, 'best_move': None}
+    # Check for checkmate opportunity we might have missed
+    for m in legal_moves:
+        board.push(m)
+        if board.is_checkmate():
+            if m != move:
+                best_suggestion = m.uci()
+                if quality in ['good', 'excellent']:
+                    quality = 'mistake'  # Missed mate!
+                    cpl = 500
+        board.pop()
+    
+    # Check for queen/rook capture we might have missed
+    if not best_suggestion:
+        for m in legal_moves:
+            if board.is_capture(m):
+                target = board.piece_at(m.to_square)
+                if target and target.symbol().lower() in ['q', 'r']:
+                    # Check if it's safe
+                    board.push(m)
+                    attackers = board.attackers(board.turn, m.to_square)
+                    board.pop()
+                    if not attackers:  # Free capture
+                        if m != move:
+                            best_suggestion = m.uci()
+                            if quality in ['good', 'excellent']:
+                                quality = 'inaccuracy'
+                                cpl = 100
+                        else:
+                            quality = 'excellent'
+    
+    return {'quality': quality, 'cpl': cpl, 'best_move': best_suggestion}
 
 def get_cp_score(score, is_white_perspective):
     """Get centipawn score from perspective"""
