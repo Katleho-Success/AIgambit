@@ -10,18 +10,22 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg-dark: #312e2b;
-            --bg-darker: #272522;
-            --bg-darkest: #1a1816;
-            --bg-panel: #262421;
-            --green-primary: #81b64c;
-            --green-dark: #5d8c3a;
+            --bg-dark: #2C3E50;
+            --bg-darker: #1a2634;
+            --bg-darkest: #0f1a24;
+            --bg-panel: #243242;
+            --green-primary: #4682B4;
+            --green-dark: #36648B;
             --text-primary: #ffffff;
-            --text-secondary: #b0ada8;
-            --board-light: #ebecd0;
-            --board-dark: #739552;
-            --highlight: #f7f769;
-            --selected: #baca44;
+            --text-secondary: #B0C4DE;
+            /* Steel Blue Chess Board Theme (matching chess_coach.py) */
+            --board-light: #B0C4DE;
+            --board-dark: #4682B4;
+            --highlight: #FFFF99;
+            --highlight-dark: #DAA520;
+            --selected: #FFFF99;
+            --check-color: #FF6347;
+            --move-indicator: rgba(0, 0, 0, 0.2);
         }
         body {
             font-family: 'Montserrat', sans-serif;
@@ -707,42 +711,50 @@
             aspect-ratio: 1;
         }
         
-        /* Chessboard.js overrides for our theme */
+        /* Chessboard.js overrides for Steel Blue theme */
         #board {
             width: 100% !important;
-            border: 3px solid var(--bg-dark);
-            border-radius: 4px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 4px solid #1a2634;
+            border-radius: 6px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255,255,255,0.1);
         }
         
-        /* Custom board colors like chess.com */
-        .board-b72b1d .white-1e1d7 { background-color: var(--board-light) !important; }
-        .board-b72b1d .black-3c85d { background-color: var(--board-dark) !important; }
+        /* Steel Blue board colors (matching chess_coach.py) */
+        .board-b72b1d .white-1e1d7 { background-color: #B0C4DE !important; }
+        .board-b72b1d .black-3c85d { background-color: #4682B4 !important; }
         
-        /* Highlight squares */
+        /* Highlight squares - yellow like chess_coach.py */
         .highlight-square {
-            background-color: rgba(247, 247, 105, 0.6) !important;
+            background-color: rgba(255, 255, 153, 0.7) !important;
         }
         .selected-square {
-            background-color: rgba(186, 202, 68, 0.7) !important;
+            background-color: rgba(255, 255, 153, 0.8) !important;
         }
+        /* Check highlight - red */
+        .check-square {
+            background-color: #FF6347 !important;
+            box-shadow: inset 0 0 20px rgba(255, 0, 0, 0.5);
+        }
+        /* Legal move dot - gray circle like chess_coach.py */
         .legal-move-dot::after {
             content: '';
             position: absolute;
-            width: 25%;
-            height: 25%;
-            background: rgba(0, 0, 0, 0.15);
+            width: 28%;
+            height: 28%;
+            background: rgba(102, 102, 102, 0.6);
             border-radius: 50%;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
+            pointer-events: none;
         }
+        /* Legal capture - ring around piece like chess_coach.py */
         .legal-capture-ring {
-            box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.15) !important;
+            box-shadow: inset 0 0 0 5px rgba(102, 102, 102, 0.6) !important;
             border-radius: 50%;
         }
         
-        /* Coordinates */
+        /* Coordinates - Steel Blue theme */
         .coords-wrapper {
             position: relative;
             width: 100%;
@@ -762,9 +774,10 @@
         .coords-files span {
             flex: 1;
             text-align: center;
-            color: var(--text-secondary);
+            color: #B0C4DE;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: 700;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
         }
         .coords-ranks {
             left: 0;
@@ -777,18 +790,22 @@
             flex: 1;
             display: flex;
             align-items: center;
-            color: var(--text-secondary);
+            color: #B0C4DE;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: 700;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
         }
 
-        /* Legacy board fallback styles (if chessboard.js fails to load) */
+        /* Legacy board fallback styles - Steel Blue theme */
         .fallback-board {
             display: grid;
             grid-template-columns: repeat(8, 1fr);
             grid-template-rows: repeat(8, 1fr);
             width: 100%;
             aspect-ratio: 1;
+            border: 4px solid #1a2634;
+            border-radius: 6px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
         }
         .square {
             display: flex;
@@ -797,15 +814,16 @@
             cursor: pointer;
             position: relative;
         }
-        .square.light { background: var(--board-light); }
-        .square.dark { background: var(--board-dark); }
-        .square.selected { background: var(--selected) !important; }
-        .square.highlighted { background: var(--highlight) !important; }
+        .square.light { background: #B0C4DE; }
+        .square.dark { background: #4682B4; }
+        .square.selected { background: #FFFF99 !important; }
+        .square.highlighted { background: #DAA520 !important; }
+        .square.check { background: #FF6347 !important; }
         .square.legal-move::after {
             content: '';
             width: 20px;
             height: 20px;
-            background: rgba(0, 0, 0, 0.15);
+            background: rgba(102, 102, 102, 0.6);
             border-radius: 50%;
             position: absolute;
         }
@@ -813,22 +831,22 @@
             content: '';
             width: 100%;
             height: 100%;
-            border: 5px solid rgba(0, 0, 0, 0.15);
+            border: 5px solid rgba(102, 102, 102, 0.6);
             border-radius: 50%;
             position: absolute;
             box-sizing: border-box;
         }
         
-        /* Chessboard.js custom highlight styles */
+        /* Chessboard.js custom highlight styles - Steel Blue theme */
         .highlight-move {
             position: relative;
         }
         .highlight-move::before {
             content: '';
             position: absolute;
-            width: 30%;
-            height: 30%;
-            background: rgba(0, 0, 0, 0.15);
+            width: 28%;
+            height: 28%;
+            background: rgba(102, 102, 102, 0.6);
             border-radius: 50%;
             top: 50%;
             left: 50%;
@@ -837,21 +855,35 @@
             pointer-events: none;
         }
         .highlight-capture {
-            box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.15) !important;
+            box-shadow: inset 0 0 0 5px rgba(102, 102, 102, 0.6) !important;
             border-radius: 50%;
         }
+        /* Last move highlight - goldenrod/yellow like chess_coach.py */
         .highlight-last-from {
-            background-color: rgba(247, 247, 105, 0.5) !important;
+            background-color: rgba(218, 165, 32, 0.5) !important;
         }
         .highlight-last-to {
-            background-color: rgba(247, 247, 105, 0.7) !important;
+            background-color: rgba(255, 255, 153, 0.7) !important;
         }
         
+        /* Piece styling with shadow effect like chess_coach.py */
         .piece {
             width: 60px;
             height: 60px;
             pointer-events: none;
-            filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.3));
+            filter: drop-shadow(2px 2px 1px rgba(0,0,0,0.4)) 
+                    drop-shadow(-1px -1px 1px rgba(255,255,255,0.2));
+        }
+        /* White pieces get darker shadow */
+        .piece-417db { 
+            filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5))
+                    drop-shadow(-1px -1px 1px rgba(0,0,0,0.3));
+        }
+        /* Black pieces get lighter outline shadow */
+        .piece-bfc55 { 
+            filter: drop-shadow(1px 1px 0px rgba(255,255,255,0.3))
+                    drop-shadow(-1px -1px 0px rgba(255,255,255,0.3))
+                    drop-shadow(2px 2px 3px rgba(0,0,0,0.4));
         }
 
         /* Status & Controls */
@@ -3602,7 +3634,8 @@
             // Coach state
             coachEnabled: true,
             moveQualities: [], // track move qualities for accuracy
-            totalCPL: 0
+            totalCPL: 0,
+            isCheck: false  // Track if current player is in check
         };
 
         // Online game state
@@ -3794,7 +3827,30 @@
         }
 
         function removeHighlights() {
-            $('#board .square-55d63').removeClass('highlight-move highlight-capture highlight-last-from highlight-last-to');
+            $('#board .square-55d63').removeClass('highlight-move highlight-capture highlight-last-from highlight-last-to check-square');
+        }
+        
+        function findKingSquare(fen, color) {
+            // Find king position from FEN
+            const pieces = parseFEN(fen);
+            const kingChar = color === 'w' ? 'K' : 'k';
+            for (const [square, piece] of Object.entries(pieces)) {
+                if (piece === kingChar) return square;
+            }
+            return null;
+        }
+        
+        function highlightCheck() {
+            // Check if king is in check (simple heuristic based on game state)
+            // The server tells us if it's check via the position
+            const turn = game.fen.split(' ')[1]; // 'w' or 'b'
+            const kingSquare = findKingSquare(game.fen, turn);
+            
+            // We'll highlight check if the game indicates it
+            // For now, let the server/response tell us about check
+            if (game.isCheck && kingSquare) {
+                $(`#board .square-55d63[data-square="${kingSquare}"]`).addClass('check-square');
+            }
         }
 
         function highlightLastMove() {
@@ -3881,6 +3937,7 @@
             }
             
             highlightLastMove();
+            highlightCheck();
         }
 
         async function handleSquareClick(squareId) {
@@ -4014,6 +4071,7 @@
                 if (data.success) {
                     game.moveHistory.push({ from: uci.slice(0,2), to: uci.slice(2,4), uci });
                     game.fen = data.fen;
+                    game.isCheck = data.is_check || false;
 
                     // Show coach feedback for player move
                     if (data.player_eval && game.coachEnabled) {
@@ -4028,6 +4086,7 @@
                             uci: data.engine_move
                         });
                         game.fen = data.fen;
+                        game.isCheck = data.is_check || false;
                     }
                     
                     // Handle clone mode - get move from clone endpoint
@@ -4037,6 +4096,7 @@
 
                     if (data.game_over) {
                         game.gameOver = true;
+                        game.isCheck = false;
                         stopTimer();
                         showGameOver(data.result);
                     } else {
@@ -4537,7 +4597,8 @@
                 capturedByBlack: [],
                 coachEnabled: game.coachEnabled !== undefined ? game.coachEnabled : true,
                 moveQualities: [],
-                totalCPL: 0
+                totalCPL: 0,
+                isCheck: false
             };
 
             closeGameModeModal();

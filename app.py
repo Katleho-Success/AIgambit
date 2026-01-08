@@ -2398,6 +2398,7 @@ def make_move():
         'success': True,
         'fen': board.fen(),
         'player_eval': player_eval,
+        'is_check': board.is_check(),
         'game_over': board.is_game_over(),
         'result': get_game_result(board) if board.is_game_over() else None
     }
@@ -2411,6 +2412,7 @@ def make_move():
                 
                 result['engine_move'] = engine_move.uci()
                 result['fen'] = board.fen()
+                result['is_check'] = board.is_check()
                 result['game_over'] = board.is_game_over()
                 result['result'] = get_game_result(board) if board.is_game_over() else None
         except Exception as e:
