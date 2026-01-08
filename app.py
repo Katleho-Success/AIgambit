@@ -2420,6 +2420,32 @@ def make_move():
     
     return jsonify(result)
 
+@app.route('/api/apply_move', methods=['POST'])
+def apply_move():
+    """Apply a move (from browser engine) and return new position"""
+    data = request.json
+    fen = data.get('fen')
+    move_uci = data.get('move')
+    
+    board = chess.Board(fen)
+    
+    try:
+        move = chess.Move.from_uci(move_uci)
+        if move not in board.legal_moves:
+            return jsonify({'success': False, 'error': 'Illegal move'})
+        
+        board.push(move)
+        
+        return jsonify({
+            'success': True,
+            'fen': board.fen(),
+            'is_check': board.is_check(),
+            'game_over': board.is_game_over(),
+            'result': get_game_result(board) if board.is_game_over() else None
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/api/engine_move', methods=['POST'])
 def get_engine_move_route():
     """Get engine's move for current position - uses Stockfish or cloud API"""

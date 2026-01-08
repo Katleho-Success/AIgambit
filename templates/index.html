@@ -2791,8 +2791,235 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <!-- Chessboard.js for responsive board -->
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <!-- Stockfish.js - Chess Engine running in browser (WebAssembly) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js"></script>
 
     <script>
+        // ========== STOCKFISH ENGINE (runs in browser via WASM) ========== //
+        const StockfishEngine = {
+            worker: null,
+            isReady: false,
+            isThinking: false,
+            pendingResolve: null,
+            currentEval: 0,
+            bestMove: null,
+            
+            // Initialize the engine
+            init() {
+                return new Promise((resolve, reject) => {
+                    try {
+                        // Create web worker from stockfish.js
+                        if (typeof STOCKFISH === 'function') {
+                            this.worker = STOCKFISH();
+                        } else if (window.STOCKFISH) {
+                            this.worker = window.STOCKFISH();
+                        } else {
+                            console.error('Stockfish.js not loaded');
+                            reject('Stockfish.js not loaded');
+                            return;
+                        }
+                        
+                        this.worker.onmessage = (event) => this.handleMessage(event.data || event);
+                        
+                        // Send UCI commands to initialize
+                        this.worker.postMessage('uci');
+                        
+                        // Wait for ready
+                        const checkReady = setInterval(() => {
+                            if (this.isReady) {
+                                clearInterval(checkReady);
+                                console.log('✅ Stockfish engine ready (running in browser)');
+                                resolve();
+                            }
+                        }, 100);
+                        
+                        // Timeout after 10 seconds
+                        setTimeout(() => {
+                            if (!this.isReady) {
+                                clearInterval(checkReady);
+                                this.isReady = true; // Try anyway
+                                resolve();
+                            }
+                        }, 10000);
+                        
+                    } catch (err) {
+                        console.error('Failed to initialize Stockfish:', err);
+                        reject(err);
+                    }
+                });
+            },
+            
+            // Handle messages from the engine
+            handleMessage(line) {
+                if (typeof line !== 'string') return;
+                
+                // Engine is ready
+                if (line === 'uciok') {
+                    this.worker.postMessage('isready');
+                }
+                if (line === 'readyok') {
+                    this.isReady = true;
+                }
+                
+                // Parse evaluation from info string
+                if (line.startsWith('info') && line.includes('score cp')) {
+                    const cpMatch = line.match(/score cp (-?\d+)/);
+                    if (cpMatch) {
+                        this.currentEval = parseInt(cpMatch[1]);
+                    }
+                }
+                if (line.startsWith('info') && line.includes('score mate')) {
+                    const mateMatch = line.match(/score mate (-?\d+)/);
+                    if (mateMatch) {
+                        const mateIn = parseInt(mateMatch[1]);
+                        // Convert mate score to centipawns (large value)
+                        this.currentEval = mateIn > 0 ? 10000 - mateIn * 100 : -10000 - mateIn * 100;
+                    }
+                }
+                
+                // Best move found
+                if (line.startsWith('bestmove')) {
+                    const parts = line.split(' ');
+                    this.bestMove = parts[1];
+                    this.isThinking = false;
+                    
+                    if (this.pendingResolve) {
+                        this.pendingResolve({
+                            move: this.bestMove,
+                            eval: this.currentEval
+                        });
+                        this.pendingResolve = null;
+                    }
+                }
+            },
+            
+            // Set skill level (0-20, where 20 is strongest)
+            setSkillLevel(level) {
+                if (!this.worker) return;
+                // Convert 1-10 scale to Stockfish 0-20 scale
+                const stockfishLevel = Math.round((level / 10) * 20);
+                this.worker.postMessage(`setoption name Skill Level value ${stockfishLevel}`);
+                
+                // Also limit search depth for lower levels
+                if (level <= 3) {
+                    this.worker.postMessage('setoption name Skill Level Maximum Error value 900');
+                    this.worker.postMessage('setoption name Skill Level Probability value 128');
+                } else if (level <= 6) {
+                    this.worker.postMessage('setoption name Skill Level Maximum Error value 600');
+                    this.worker.postMessage('setoption name Skill Level Probability value 80');
+                } else {
+                    this.worker.postMessage('setoption name Skill Level Maximum Error value 200');
+                    this.worker.postMessage('setoption name Skill Level Probability value 30');
+                }
+            },
+            
+            // Get best move for a position
+            getBestMove(fen, skillLevel = 10, timeMs = 1000) {
+                return new Promise((resolve, reject) => {
+                    if (!this.worker || !this.isReady) {
+                        reject('Engine not ready');
+                        return;
+                    }
+                    
+                    this.isThinking = true;
+                    this.bestMove = null;
+                    this.currentEval = 0;
+                    
+                    // Set skill level
+                    this.setSkillLevel(skillLevel);
+                    
+                    // Adjust thinking time and depth based on skill
+                    let depth = 20;
+                    let moveTime = timeMs;
+                    
+                    if (skillLevel <= 2) {
+                        depth = 3;
+                        moveTime = 200;
+                    } else if (skillLevel <= 4) {
+                        depth = 6;
+                        moveTime = 400;
+                    } else if (skillLevel <= 6) {
+                        depth = 10;
+                        moveTime = 600;
+                    } else if (skillLevel <= 8) {
+                        depth = 14;
+                        moveTime = 800;
+                    }
+                    
+                    this.pendingResolve = resolve;
+                    
+                    // Set position and search
+                    this.worker.postMessage(`position fen ${fen}`);
+                    this.worker.postMessage(`go depth ${depth} movetime ${moveTime}`);
+                    
+                    // Timeout safety
+                    setTimeout(() => {
+                        if (this.isThinking && this.pendingResolve) {
+                            this.worker.postMessage('stop');
+                        }
+                    }, moveTime + 2000);
+                });
+            },
+            
+            // Analyze a position (get evaluation)
+            analyzePosition(fen, depth = 18) {
+                return new Promise((resolve, reject) => {
+                    if (!this.worker || !this.isReady) {
+                        reject('Engine not ready');
+                        return;
+                    }
+                    
+                    this.isThinking = true;
+                    this.currentEval = 0;
+                    this.bestMove = null;
+                    
+                    // Set to maximum strength for analysis
+                    this.worker.postMessage('setoption name Skill Level value 20');
+                    
+                    this.pendingResolve = resolve;
+                    
+                    this.worker.postMessage(`position fen ${fen}`);
+                    this.worker.postMessage(`go depth ${depth}`);
+                    
+                    // Timeout
+                    setTimeout(() => {
+                        if (this.isThinking && this.pendingResolve) {
+                            this.worker.postMessage('stop');
+                        }
+                    }, 5000);
+                });
+            },
+            
+            // Stop any ongoing calculation
+            stop() {
+                if (this.worker && this.isThinking) {
+                    this.worker.postMessage('stop');
+                }
+            },
+            
+            // New game
+            newGame() {
+                if (this.worker) {
+                    this.worker.postMessage('ucinewgame');
+                    this.worker.postMessage('isready');
+                }
+            }
+        };
+        
+        // Initialize engine when page loads
+        let engineReady = false;
+        
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await StockfishEngine.init();
+                engineReady = true;
+                console.log('🎮 Stockfish engine initialized successfully!');
+            } catch (err) {
+                console.warn('⚠️ Stockfish failed to initialize, will use server fallback:', err);
+                engineReady = false;
+            }
+        });
+        
         // ========== AUTH STATE ========== //
         let currentUser = null;
 
@@ -4041,7 +4268,7 @@
                 game.isPlayerTurn = false;
                 renderPieces();
                 sendOnlineMove(uci);
-                game.moveHistory.push({ from: uci.slice(0,2), to: uci.slice(2,4), uci });
+                game.moveHistory.push({ from: uci.slice(0, 2), to: uci.slice(2, 4), uci });
                 updateMovesList();
                 updateStatus('⏳ Waiting for opponent...');
                 return;
@@ -4054,14 +4281,14 @@
             renderPieces();
 
             try {
-                // First, make the player's move
+                // First, make the player's move using server to validate
                 const res = await fetch('/api/move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         fen: game.fen,
                         move: uci,
-                        get_engine_move: game.gameMode === 'engine',  // Only engine mode gets move here
+                        get_engine_move: false,  // We'll use browser engine instead
                         skill: game.engineSkill
                     })
                 });
@@ -4069,24 +4296,18 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    game.moveHistory.push({ from: uci.slice(0,2), to: uci.slice(2,4), uci });
+                    game.moveHistory.push({ from: uci.slice(0, 2), to: uci.slice(2, 4), uci });
                     game.fen = data.fen;
                     game.isCheck = data.is_check || false;
 
-                    // Show coach feedback for player move
-                    if (data.player_eval && game.coachEnabled) {
-                        updateCoachFeedback(data.player_eval);
+                    // Show coach feedback for player move (using browser analysis)
+                    if (game.coachEnabled && engineReady) {
+                        analyzePlayerMove(uci, data.fen);
                     }
 
-                    // Handle engine move for engine mode
-                    if (data.engine_move && game.gameMode === 'engine') {
-                        game.moveHistory.push({
-                            from: data.engine_move.slice(0,2),
-                            to: data.engine_move.slice(2,4),
-                            uci: data.engine_move
-                        });
-                        game.fen = data.fen;
-                        game.isCheck = data.is_check || false;
+                    // Handle engine mode - get AI move using BROWSER Stockfish
+                    if (game.gameMode === 'engine' && !data.game_over) {
+                        await getEngineResponseMove();
                     }
                     
                     // Handle clone mode - get move from clone endpoint
@@ -4103,7 +4324,8 @@
                         if (game.gameMode === 'multiplayer') {
                             const turn = game.fen.split(' ')[1];
                             updateStatus(turn === 'w' ? '⬜ White to move' : '⬛ Black to move');
-                        } else {
+                        } else if (game.gameMode !== 'engine') {
+                            // For clone and other modes
                             game.isPlayerTurn = true;
                             updateStatus('♟ Your turn');
                         }
@@ -4121,6 +4343,138 @@
                 console.error('Error making move:', err);
                 updateStatus('❌ Error - try again');
                 game.isPlayerTurn = true;
+            }
+        }
+        
+        // Get AI response move using browser Stockfish
+        async function getEngineResponseMove() {
+            try {
+                if (engineReady && StockfishEngine.isReady) {
+                    console.log('🎯 Getting AI response from browser Stockfish (Level ' + game.engineSkill + ')');
+                    
+                    const result = await StockfishEngine.getBestMove(game.fen, game.engineSkill, 1500);
+                    
+                    if (result && result.move) {
+                        // Apply the AI move
+                        const moveResult = await applyEngineMove(result.move);
+                        
+                        if (moveResult && moveResult.success) {
+                            game.moveHistory.push({
+                                from: result.move.slice(0, 2),
+                                to: result.move.slice(2, 4),
+                                uci: result.move
+                            });
+                            game.fen = moveResult.fen;
+                            game.isCheck = moveResult.is_check || false;
+                            
+                            if (moveResult.game_over) {
+                                game.gameOver = true;
+                                stopTimer();
+                                showGameOver(moveResult.result);
+                            } else {
+                                game.isPlayerTurn = true;
+                                updateStatus('♟ Your turn');
+                            }
+                            
+                            updateMovesList();
+                            renderPieces();
+                            updateCapturedPieces();
+                            return;
+                        }
+                    }
+                }
+                
+                // Fallback to server API if browser engine fails
+                console.log('⚡ Falling back to server for AI response');
+                const res = await fetch('/api/engine_move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fen: game.fen, skill: game.engineSkill })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    game.moveHistory.push({
+                        from: data.move.slice(0, 2),
+                        to: data.move.slice(2, 4),
+                        uci: data.move
+                    });
+                    game.fen = data.fen;
+                    game.isCheck = data.is_check || false;
+                    
+                    if (data.game_over) {
+                        game.gameOver = true;
+                        stopTimer();
+                        showGameOver(data.result);
+                    } else {
+                        game.isPlayerTurn = true;
+                        updateStatus('♟ Your turn');
+                    }
+                    
+                    updateMovesList();
+                    renderPieces();
+                    updateCapturedPieces();
+                }
+            } catch (err) {
+                console.error('Error getting AI response:', err);
+                game.isPlayerTurn = true;
+                updateStatus('♟ Your turn');
+            }
+        }
+        
+        // Analyze player move for coaching using browser Stockfish
+        async function analyzePlayerMove(move, newFen) {
+            try {
+                if (!engineReady || !StockfishEngine.isReady) return;
+                
+                // Get evaluation before the move (from previous position)
+                // and evaluation after to calculate CPL
+                const beforeFen = game.moveHistory.length >= 2 
+                    ? null // We'd need to track this properly
+                    : 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+                
+                // For now, just get evaluation of current position
+                const result = await StockfishEngine.analyzePosition(newFen, 12);
+                
+                if (result) {
+                    const evalScore = result.eval;
+                    const playerMultiplier = game.playerColor === 'white' ? 1 : -1;
+                    const playerEval = evalScore * playerMultiplier;
+                    
+                    // Simple quality assessment based on eval
+                    let quality = 'good';
+                    let emoji = '✅';
+                    let feedback = 'Good move!';
+                    
+                    if (playerEval < -300) {
+                        quality = 'blunder';
+                        emoji = '❌❌';
+                        feedback = 'Blunder! This loses material or position.';
+                    } else if (playerEval < -100) {
+                        quality = 'mistake';
+                        emoji = '❌';
+                        feedback = 'Mistake! There was a better move.';
+                    } else if (playerEval < -30) {
+                        quality = 'inaccuracy';
+                        emoji = '⚠️';
+                        feedback = 'Inaccuracy. A small slip.';
+                    } else if (playerEval > 100) {
+                        quality = 'excellent';
+                        emoji = '⭐';
+                        feedback = 'Excellent! Great move!';
+                    }
+                    
+                    updateCoachFeedback({
+                        quality,
+                        emoji,
+                        feedback,
+                        eval: result.eval,
+                        best_move: result.move
+                    });
+                }
+            } catch (err) {
+                console.log('Analysis skipped:', err);
             }
         }
         
@@ -4624,8 +4978,15 @@
                 document.getElementById('engine-level').textContent = '🧬 AI Clone';
                 updateStatus('♟ Your turn - make a move!');
             } else {
+                // Show which engine is being used
+                const engineSource = engineReady ? '🖥️ Browser Engine' : '☁️ Cloud Engine';
                 document.getElementById('opponent-name').textContent = 'Stockfish AI';
-                document.getElementById('engine-level').textContent = 'Level ' + skill;
+                document.getElementById('engine-level').textContent = `Level ${skill} (${engineSource})`;
+                
+                // Start a new engine game
+                if (engineReady) {
+                    StockfishEngine.newGame();
+                }
                 
                 if (color === 'black') {
                     updateStatus('🤔 AI is thinking...');
@@ -4653,6 +5014,36 @@
 
         async function getEngineFirstMove() {
             try {
+                // Use browser Stockfish engine
+                if (engineReady && StockfishEngine.isReady) {
+                    console.log('🎯 Using browser Stockfish for AI move');
+                    StockfishEngine.newGame();
+                    
+                    const result = await StockfishEngine.getBestMove(game.fen, game.engineSkill, 1500);
+                    
+                    if (result && result.move) {
+                        // Apply the move locally
+                        const moveResult = await applyEngineMove(result.move);
+                        if (moveResult) {
+                            game.moveHistory.push({
+                                from: result.move.slice(0, 2),
+                                to: result.move.slice(2, 4),
+                                uci: result.move
+                            });
+                            game.fen = moveResult.fen;
+                            game.isPlayerTurn = true;
+                            updateMovesList();
+                            renderPieces();
+                            updateCapturedPieces();
+                            updateTimerDisplay();
+                            updateStatus('♟ Your turn');
+                            return;
+                        }
+                    }
+                }
+                
+                // Fallback to server API
+                console.log('⚡ Falling back to server for AI move');
                 const res = await fetch('/api/engine_move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -4663,8 +5054,8 @@
 
                 if (data.success) {
                     game.moveHistory.push({
-                        from: data.move.slice(0,2),
-                        to: data.move.slice(2,4),
+                        from: data.move.slice(0, 2),
+                        to: data.move.slice(2, 4),
                         uci: data.move
                     });
                     game.fen = data.fen;
@@ -4679,6 +5070,21 @@
                 console.error('Error getting engine move:', err);
                 game.isPlayerTurn = true;
                 updateStatus('♟ Your turn');
+            }
+        }
+        
+        // Apply an engine move and get the new FEN
+        async function applyEngineMove(uciMove) {
+            try {
+                const res = await fetch('/api/apply_move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fen: game.fen, move: uciMove })
+                });
+                return await res.json();
+            } catch (err) {
+                console.error('Error applying move:', err);
+                return null;
             }
         }
 
