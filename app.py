@@ -1083,43 +1083,226 @@ def get_lichess_move(fen, skill=10):
     """
     try:
         # Lichess cloud evaluation endpoint
-        url = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen)}&multiPv=3"
-        response = requests.get(url, timeout=5, headers={'Accept': 'application/json'})
+        url = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen)}&multiPv=5"
+        response = requests.get(url, timeout=3, headers={'Accept': 'application/json'})
         
         if response.status_code == 200:
             data = response.json()
             if 'pvs' in data and len(data['pvs']) > 0:
-                # Get the best move(s)
                 pvs = data['pvs']
-                
-                # For lower skill levels, sometimes pick suboptimal moves
-                if skill <= 5 and len(pvs) > 1 and random.random() < 0.4:
-                    # Pick 2nd or 3rd best move
-                    choice_idx = min(random.randint(1, 2), len(pvs) - 1)
-                    pv = pvs[choice_idx]['moves'].split()[0]
-                elif skill <= 10 and len(pvs) > 1 and random.random() < 0.2:
-                    # Occasionally pick 2nd best
-                    pv = pvs[1]['moves'].split()[0]
-                else:
-                    # Best move
-                    pv = pvs[0]['moves'].split()[0]
-                
-                return pv
-        
-        # Fallback to Lichess tablebase for endgames (7 pieces or less)
-        board = chess.Board(fen)
-        if len(board.piece_map()) <= 7:
-            tb_url = f"https://tablebase.lichess.ovh/standard?fen={requests.utils.quote(fen)}"
-            tb_response = requests.get(tb_url, timeout=5)
-            if tb_response.status_code == 200:
-                tb_data = tb_response.json()
-                if 'moves' in tb_data and len(tb_data['moves']) > 0:
-                    return tb_data['moves'][0]['uci']
+                return pvs  # Return all PVs for skill-based selection
         
         return None
     except Exception as e:
         print(f"Lichess API error: {e}")
         return None
+
+def evaluate_move_heuristic(board, move):
+    """
+    Evaluate a move using heuristics. Returns a score (higher = better).
+    Used when no engine is available.
+    """
+    score = 0
+    piece_values = {'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 0}
+    
+    moving_piece = board.piece_at(move.from_square)
+    if not moving_piece:
+        return 0
+    
+    moving_value = piece_values.get(moving_piece.symbol().lower(), 0)
+    
+    # Checkmate is always best
+    board.push(move)
+    if board.is_checkmate():
+        board.pop()
+        return 100000
+    
+    # Check is good
+    if board.is_check():
+        score += 50
+    board.pop()
+    
+    # Captures
+    if board.is_capture(move):
+        captured = board.piece_at(move.to_square)
+        if captured:
+            captured_value = piece_values.get(captured.symbol().lower(), 0)
+            # Material gain/loss
+            score += captured_value
+            
+            # Check if capture is safe (not defended by lower value piece)
+            board.push(move)
+            attackers = board.attackers(board.turn, move.to_square)
+            board.pop()
+            
+            if attackers:
+                min_attacker_value = min([piece_values.get(board.piece_at(sq).symbol().lower(), 1000) 
+                                          for sq in attackers if board.piece_at(sq)] or [1000])
+                if min_attacker_value < moving_value:
+                    # We might lose the piece
+                    score -= (moving_value - captured_value)
+    
+    # Promotion
+    if move.promotion:
+        promo_values = {chess.QUEEN: 800, chess.ROOK: 400, chess.BISHOP: 230, chess.KNIGHT: 220}
+        score += promo_values.get(move.promotion, 0)
+    
+    # Center control (especially in opening)
+    center_squares = [chess.D4, chess.E4, chess.D5, chess.E5]
+    extended_center = [chess.C3, chess.D3, chess.E3, chess.F3, chess.C4, chess.F4, 
+                       chess.C5, chess.F5, chess.C6, chess.D6, chess.E6, chess.F6]
+    
+    if move.to_square in center_squares:
+        score += 30
+    elif move.to_square in extended_center:
+        score += 15
+    
+    # Development (moving pieces from back rank in opening)
+    if board.fullmove_number <= 10:
+        from_rank = chess.square_rank(move.from_square)
+        piece_type = moving_piece.symbol().lower()
+        
+        if piece_type in ['n', 'b']:
+            # Developing knights/bishops
+            if (moving_piece.color == chess.WHITE and from_rank == 0) or \
+               (moving_piece.color == chess.BLACK and from_rank == 7):
+                score += 25
+        
+        # Castling is good
+        if piece_type == 'k' and abs(move.to_square - move.from_square) == 2:
+            score += 60
+    
+    # Avoid hanging pieces
+    board.push(move)
+    to_square = move.to_square
+    attackers = board.attackers(board.turn, to_square)  # Opponent's attackers
+    defenders = board.attackers(not board.turn, to_square)  # Our defenders after move
+    board.pop()
+    
+    if attackers and not defenders:
+        # We're hanging the piece!
+        score -= moving_value
+    
+    # Avoid moving king in opening (unless castling)
+    if moving_piece.symbol().lower() == 'k' and board.fullmove_number <= 10:
+        if abs(move.to_square - move.from_square) != 2:  # Not castling
+            score -= 40
+    
+    return score
+
+def get_ranked_moves(board):
+    """
+    Get all legal moves ranked by heuristic evaluation.
+    Returns list of (move, score) tuples sorted by score descending.
+    """
+    legal_moves = list(board.legal_moves)
+    if not legal_moves:
+        return []
+    
+    # First check for checkmates
+    for move in legal_moves:
+        board.push(move)
+        if board.is_checkmate():
+            board.pop()
+            return [(move, 100000)]  # Checkmate always wins
+        board.pop()
+    
+    scored_moves = []
+    for move in legal_moves:
+        score = evaluate_move_heuristic(board, move)
+        scored_moves.append((move, score))
+    
+    # Sort by score descending
+    scored_moves.sort(key=lambda x: x[1], reverse=True)
+    return scored_moves
+
+def select_move_by_skill(board, skill, ranked_moves=None):
+    """
+    Select a move based on skill level using ranked moves.
+    Higher skill = more likely to pick top moves.
+    Lower skill = more randomness and deliberate mistakes.
+    """
+    if ranked_moves is None:
+        ranked_moves = get_ranked_moves(board)
+    
+    if not ranked_moves:
+        legal_moves = list(board.legal_moves)
+        return random.choice(legal_moves) if legal_moves else None
+    
+    # Always play checkmate if available
+    if ranked_moves[0][1] >= 100000:
+        return ranked_moves[0][0]
+    
+    num_moves = len(ranked_moves)
+    
+    # Skill 1-3: Very weak - often picks bad moves
+    if skill <= 3:
+        # Pick from bottom 60% of moves, 60% of the time
+        if random.random() < 0.6:
+            bad_start = max(1, int(num_moves * 0.4))
+            return random.choice([m[0] for m in ranked_moves[bad_start:]])
+        # Otherwise random from all
+        return random.choice([m[0] for m in ranked_moves])
+    
+    # Skill 4-6: Weak - often misses best moves
+    elif skill <= 6:
+        # Pick from top 30% only 30% of the time
+        if random.random() < 0.3:
+            top_count = max(1, int(num_moves * 0.3))
+            return random.choice([m[0] for m in ranked_moves[:top_count]])
+        # Pick from middle 50%
+        elif random.random() < 0.5:
+            mid_start = max(1, int(num_moves * 0.2))
+            mid_end = max(mid_start + 1, int(num_moves * 0.7))
+            return random.choice([m[0] for m in ranked_moves[mid_start:mid_end]])
+        # Random
+        return random.choice([m[0] for m in ranked_moves])
+    
+    # Skill 7-10: Intermediate - sometimes finds good moves
+    elif skill <= 10:
+        # Probability of best move increases with skill
+        best_chance = 0.3 + (skill - 7) * 0.1  # 30% to 60%
+        if random.random() < best_chance:
+            top_count = max(1, int(num_moves * 0.2))
+            return random.choice([m[0] for m in ranked_moves[:top_count]])
+        # Good move (top 50%)
+        elif random.random() < 0.6:
+            top_count = max(1, int(num_moves * 0.5))
+            return random.choice([m[0] for m in ranked_moves[:top_count]])
+        # Random from top 80%
+        top_count = max(1, int(num_moves * 0.8))
+        return random.choice([m[0] for m in ranked_moves[:top_count]])
+    
+    # Skill 11-14: Good - usually finds good moves
+    elif skill <= 14:
+        best_chance = 0.5 + (skill - 11) * 0.1  # 50% to 80%
+        if random.random() < best_chance:
+            top_count = max(1, int(num_moves * 0.15))
+            return random.choice([m[0] for m in ranked_moves[:top_count]])
+        # Top 40%
+        top_count = max(1, int(num_moves * 0.4))
+        return random.choice([m[0] for m in ranked_moves[:top_count]])
+    
+    # Skill 15-17: Strong - almost always good moves
+    elif skill <= 17:
+        best_chance = 0.7 + (skill - 15) * 0.08  # 70% to 86%
+        if random.random() < best_chance:
+            top_count = max(1, int(num_moves * 0.1))
+            return random.choice([m[0] for m in ranked_moves[:top_count]])
+        # Top 25%
+        top_count = max(1, int(num_moves * 0.25))
+        return random.choice([m[0] for m in ranked_moves[:top_count]])
+    
+    # Skill 18-20: Expert - plays best or near-best
+    else:
+        best_chance = 0.85 + (skill - 18) * 0.05  # 85% to 95%
+        if random.random() < best_chance:
+            # Best move or top 2
+            top_count = min(2, num_moves)
+            return random.choice([m[0] for m in ranked_moves[:top_count]])
+        # Top 15%
+        top_count = max(1, int(num_moves * 0.15))
+        return random.choice([m[0] for m in ranked_moves[:top_count]])
 
 def get_random_smart_move(board, skill=5):
     """
@@ -1618,199 +1801,82 @@ def update_clone_model_position(fen, move_uci, player_color, username=None):
 def get_skill_adjusted_move(board, skill):
     """
     Get a move adjusted for skill level (1-20).
-    Lower skill = more mistakes, random moves, misses tactics.
-    Uses Lichess Cloud API as fallback when local Stockfish unavailable.
-    NOTE: This function should be called WITHOUT engine_lock held.
+    Uses local Stockfish if available, otherwise uses intelligent heuristics.
+    Lower skill = more mistakes, higher skill = stronger play.
     """
     
     legal_moves = list(board.legal_moves)
     if not legal_moves:
         return None
     
-    # Skill 1-3: Very beginner - often random, rarely finds good moves
-    if skill <= 3:
-        # 70% chance of random move at skill 1, 40% at skill 3
-        random_chance = 0.7 - (skill - 1) * 0.15
-        if random.random() < random_chance:
-            # Prefer non-hanging moves if possible
-            safe_moves = []
-            for move in legal_moves:
-                board.push(move)
-                # Check if we're hanging a piece
-                is_safe = True
-                for opp_move in board.legal_moves:
-                    if board.is_capture(opp_move):
-                        # We might be hanging something
-                        is_safe = False
-                        break
-                board.pop()
-                if is_safe:
-                    safe_moves.append(move)
+    # If we have a local engine, use it with Stockfish's skill level
+    if engine:
+        with engine_lock:
+            try:
+                # Map our 1-20 scale to Stockfish's 0-20 skill level
+                sf_skill = max(0, min(20, skill))
+                engine.configure({"Skill Level": sf_skill})
+                
+                # Adjust depth and time based on skill
+                if skill <= 5:
+                    depth = max(1, skill)
+                    think_time = 0.05
+                elif skill <= 10:
+                    depth = skill - 2
+                    think_time = 0.1
+                elif skill <= 15:
+                    depth = skill - 1
+                    think_time = 0.2 + (skill - 10) * 0.05
+                else:
+                    depth = min(20, skill + 2)
+                    think_time = 0.5 + (skill - 15) * 0.1
+                
+                result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
+                return result.move
+            except Exception as e:
+                print(f"Engine error: {e}")
+    
+    # No local engine - try Lichess Cloud API for cached evaluations
+    cloud_data = get_lichess_move(board.fen(), skill)
+    if cloud_data and isinstance(cloud_data, list) and len(cloud_data) > 0:
+        # cloud_data is now a list of PVs with evaluations
+        try:
+            # For high skill, pick top move; for low skill, pick worse moves
+            if skill >= 18:
+                # Almost always best move
+                pv = cloud_data[0]['moves'].split()[0]
+            elif skill >= 14:
+                # Usually best, sometimes 2nd best
+                idx = 0 if random.random() < 0.85 else min(1, len(cloud_data) - 1)
+                pv = cloud_data[idx]['moves'].split()[0]
+            elif skill >= 10:
+                # Mix of top moves
+                idx = 0 if random.random() < 0.6 else min(random.randint(1, 2), len(cloud_data) - 1)
+                pv = cloud_data[idx]['moves'].split()[0]
+            elif skill >= 6:
+                # Often picks 2nd or 3rd best
+                if len(cloud_data) > 1:
+                    idx = random.randint(0, min(2, len(cloud_data) - 1))
+                else:
+                    idx = 0
+                pv = cloud_data[idx]['moves'].split()[0]
+            else:
+                # Low skill - often ignore cloud move entirely
+                if random.random() < 0.5 and len(cloud_data) > 1:
+                    idx = min(random.randint(1, 3), len(cloud_data) - 1)
+                    pv = cloud_data[idx]['moves'].split()[0]
+                else:
+                    # Fall through to heuristic
+                    return select_move_by_skill(board, skill)
             
-            if safe_moves and random.random() < 0.5:
-                return random.choice(safe_moves)
-            return random.choice(legal_moves)
-        
-        # Otherwise use engine with very low skill
-        if engine:
-            with engine_lock:
-                try:
-                    engine.configure({"Skill Level": 0})
-                    result = engine.play(board, chess.engine.Limit(depth=1, time=0.05))
-                    return result.move
-                except:
-                    pass
-        
-        # Fallback: try Lichess cloud API or smart random
-        cloud_move = get_lichess_move(board.fen(), skill)
-        if cloud_move:
-            try:
-                move = chess.Move.from_uci(cloud_move)
-                if move in legal_moves:
-                    # For low skill, sometimes ignore the cloud move
-                    if random.random() < 0.4:
-                        return get_random_smart_move(board, skill)
-                    return move
-            except:
-                pass
-        return get_random_smart_move(board, skill)
+            move = chess.Move.from_uci(pv)
+            if move in legal_moves:
+                return move
+        except Exception as e:
+            print(f"Cloud move parse error: {e}")
     
-    # Skill 4-6: Beginner - makes many mistakes
-    elif skill <= 6:
-        random_chance = 0.4 - (skill - 4) * 0.1  # 40% to 20%
-        if random.random() < random_chance:
-            # Pick a capture if available, otherwise random
-            captures = [m for m in legal_moves if board.is_capture(m)]
-            if captures and random.random() < 0.6:
-                return random.choice(captures)
-            return random.choice(legal_moves)
-        
-        if engine:
-            with engine_lock:
-                try:
-                    engine.configure({"Skill Level": skill - 2})
-                    depth = max(1, skill - 3)  # depth 1-3
-                    result = engine.play(board, chess.engine.Limit(depth=depth, time=0.08))
-                    return result.move
-                except:
-                    pass
-        
-        # Fallback: Lichess cloud API
-        cloud_move = get_lichess_move(board.fen(), skill)
-        if cloud_move:
-            try:
-                move = chess.Move.from_uci(cloud_move)
-                if move in legal_moves:
-                    if random.random() < 0.25:
-                        return get_random_smart_move(board, skill)
-                    return move
-            except:
-                pass
-        return get_random_smart_move(board, skill)
-    
-    # Skill 7-10: Intermediate beginner - occasional blunders
-    elif skill <= 10:
-        random_chance = 0.15 - (skill - 7) * 0.03  # 15% to 6%
-        if random.random() < random_chance:
-            captures = [m for m in legal_moves if board.is_capture(m)]
-            checks = [m for m in legal_moves if board.gives_check(m)]
-            good_moves = list(set(captures + checks))
-            if good_moves:
-                return random.choice(good_moves)
-            return random.choice(legal_moves)
-        
-        if engine:
-            with engine_lock:
-                try:
-                    engine.configure({"Skill Level": skill})
-                    depth = skill - 4  # depth 3-6
-                    result = engine.play(board, chess.engine.Limit(depth=depth, time=0.15))
-                    return result.move
-                except:
-                    pass
-        
-        # Fallback: Lichess cloud API
-        cloud_move = get_lichess_move(board.fen(), skill)
-        if cloud_move:
-            try:
-                move = chess.Move.from_uci(cloud_move)
-                if move in legal_moves:
-                    return move
-            except:
-                pass
-        return get_random_smart_move(board, skill)
-    
-    # Skill 11-14: Intermediate - plays reasonably
-    elif skill <= 14:
-        if engine:
-            with engine_lock:
-                try:
-                    engine.configure({"Skill Level": skill})
-                    depth = skill - 3  # depth 8-11
-                    think_time = 0.15 + (skill - 11) * 0.05  # 0.15s to 0.3s
-                    result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
-                    return result.move
-                except:
-                    pass
-        
-        # Fallback: Lichess cloud API
-        cloud_move = get_lichess_move(board.fen(), skill)
-        if cloud_move:
-            try:
-                move = chess.Move.from_uci(cloud_move)
-                if move in legal_moves:
-                    return move
-            except:
-                pass
-        return get_random_smart_move(board, skill)
-    
-    # Skill 15-17: Advanced - plays well
-    elif skill <= 17:
-        if engine:
-            with engine_lock:
-                try:
-                    engine.configure({"Skill Level": skill})
-                    depth = skill - 2  # depth 13-15
-                    think_time = 0.25 + (skill - 15) * 0.1  # 0.25s to 0.45s
-                    result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
-                    return result.move
-                except:
-                    pass
-        
-        # Fallback: Lichess cloud API
-        cloud_move = get_lichess_move(board.fen(), skill)
-        if cloud_move:
-            try:
-                move = chess.Move.from_uci(cloud_move)
-                if move in legal_moves:
-                    return move
-            except:
-                pass
-        return get_random_smart_move(board, skill)
-    
-    # Skill 18-20: Expert/Master - very strong
-    else:
-        if engine:
-            with engine_lock:
-                try:
-                    engine.configure({"Skill Level": 20})
-                    depth = 15 + (skill - 18)  # depth 15-17
-                    think_time = 0.5 + (skill - 18) * 0.25  # 0.5s to 1.0s
-                    result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
-                    return result.move
-                except:
-                    pass
-        
-        # Fallback: Lichess cloud API (best move for high skill)
-        cloud_move = get_lichess_move(board.fen(), skill)
-        if cloud_move:
-            try:
-                move = chess.Move.from_uci(cloud_move)
-                if move in legal_moves:
-                    return move
-            except:
-                pass
-        return get_random_smart_move(board, skill)
+    # Fallback: Use heuristic-based move selection
+    return select_move_by_skill(board, skill)
 
 def get_stockfish_path():
     """Find Stockfish engine - supports Windows and Linux"""
