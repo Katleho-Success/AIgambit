@@ -2791,11 +2791,9 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <!-- Chessboard.js for responsive board -->
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-    <!-- Stockfish.js - Chess Engine running in browser (WebAssembly) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js"></script>
 
     <script>
-        // ========== STOCKFISH ENGINE (runs in browser via WASM) ========== //
+        // ========== STOCKFISH ENGINE (Stockfish 16 via Web Worker) ========== //
         const StockfishEngine = {
             worker: null,
             isReady: false,
@@ -2803,44 +2801,56 @@
             pendingResolve: null,
             currentEval: 0,
             bestMove: null,
+            pv: '',  // Principal variation
+            depth: 0,
             
-            // Initialize the engine
+            // Initialize the engine using stockfish.js from CDN as Web Worker
             init() {
                 return new Promise((resolve, reject) => {
                     try {
-                        // Create web worker from stockfish.js
-                        if (typeof STOCKFISH === 'function') {
-                            this.worker = STOCKFISH();
-                        } else if (window.STOCKFISH) {
-                            this.worker = window.STOCKFISH();
+                        // Use stockfish.js WASM from a reliable CDN
+                        // This loads Stockfish 16 compiled to WASM
+                        const wasmSupported = typeof WebAssembly === 'object';
+                        
+                        if (wasmSupported) {
+                            // Modern Stockfish 16 WASM build
+                            this.worker = new Worker('https://cdn.jsdelivr.net/npm/stockfish.js@16.0.0/stockfish.js');
                         } else {
-                            console.error('Stockfish.js not loaded');
-                            reject('Stockfish.js not loaded');
-                            return;
+                            // Fallback to older JS version
+                            this.worker = new Worker('https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js');
                         }
                         
-                        this.worker.onmessage = (event) => this.handleMessage(event.data || event);
+                        this.worker.onmessage = (event) => {
+                            this.handleMessage(event.data);
+                        };
+                        
+                        this.worker.onerror = (err) => {
+                            console.error('Stockfish worker error:', err);
+                        };
                         
                         // Send UCI commands to initialize
-                        this.worker.postMessage('uci');
+                        this.send('uci');
                         
-                        // Wait for ready
+                        // Wait for ready with timeout
+                        let attempts = 0;
+                        const maxAttempts = 100;
                         const checkReady = setInterval(() => {
+                            attempts++;
                             if (this.isReady) {
                                 clearInterval(checkReady);
-                                console.log('✅ Stockfish engine ready (running in browser)');
+                                // Configure engine for maximum strength at level 10
+                                this.send('setoption name Hash value 128');
+                                this.send('setoption name Threads value 1');
+                                this.send('isready');
+                                console.log('✅ Stockfish 16 engine ready (WebAssembly)');
+                                resolve();
+                            } else if (attempts >= maxAttempts) {
+                                clearInterval(checkReady);
+                                console.warn('⚠️ Stockfish init timeout, trying anyway');
+                                this.isReady = true;
                                 resolve();
                             }
                         }, 100);
-                        
-                        // Timeout after 10 seconds
-                        setTimeout(() => {
-                            if (!this.isReady) {
-                                clearInterval(checkReady);
-                                this.isReady = true; // Try anyway
-                                resolve();
-                            }
-                        }, 10000);
                         
                     } catch (err) {
                         console.error('Failed to initialize Stockfish:', err);
@@ -2849,31 +2859,51 @@
                 });
             },
             
+            // Send command to engine
+            send(cmd) {
+                if (this.worker) {
+                    this.worker.postMessage(cmd);
+                }
+            },
+            
             // Handle messages from the engine
             handleMessage(line) {
                 if (typeof line !== 'string') return;
                 
                 // Engine is ready
                 if (line === 'uciok') {
-                    this.worker.postMessage('isready');
+                    this.send('isready');
                 }
                 if (line === 'readyok') {
                     this.isReady = true;
                 }
                 
-                // Parse evaluation from info string
-                if (line.startsWith('info') && line.includes('score cp')) {
-                    const cpMatch = line.match(/score cp (-?\d+)/);
-                    if (cpMatch) {
-                        this.currentEval = parseInt(cpMatch[1]);
+                // Parse info string for evaluation and best line
+                if (line.startsWith('info depth')) {
+                    // Extract depth
+                    const depthMatch = line.match(/depth (\d+)/);
+                    if (depthMatch) {
+                        this.depth = parseInt(depthMatch[1]);
                     }
-                }
-                if (line.startsWith('info') && line.includes('score mate')) {
-                    const mateMatch = line.match(/score mate (-?\d+)/);
-                    if (mateMatch) {
-                        const mateIn = parseInt(mateMatch[1]);
-                        // Convert mate score to centipawns (large value)
-                        this.currentEval = mateIn > 0 ? 10000 - mateIn * 100 : -10000 - mateIn * 100;
+                    
+                    // Extract score
+                    if (line.includes('score cp')) {
+                        const cpMatch = line.match(/score cp (-?\d+)/);
+                        if (cpMatch) {
+                            this.currentEval = parseInt(cpMatch[1]);
+                        }
+                    } else if (line.includes('score mate')) {
+                        const mateMatch = line.match(/score mate (-?\d+)/);
+                        if (mateMatch) {
+                            const mateIn = parseInt(mateMatch[1]);
+                            this.currentEval = mateIn > 0 ? 30000 - mateIn * 100 : -30000 - mateIn * 100;
+                        }
+                    }
+                    
+                    // Extract principal variation (best line)
+                    const pvMatch = line.match(/ pv (.+)$/);
+                    if (pvMatch) {
+                        this.pv = pvMatch[1];
                     }
                 }
                 
@@ -2883,40 +2913,24 @@
                     this.bestMove = parts[1];
                     this.isThinking = false;
                     
+                    console.log(`🎯 Stockfish: bestmove=${this.bestMove}, eval=${this.currentEval}, depth=${this.depth}`);
+                    
                     if (this.pendingResolve) {
                         this.pendingResolve({
                             move: this.bestMove,
-                            eval: this.currentEval
+                            eval: this.currentEval,
+                            depth: this.depth,
+                            pv: this.pv
                         });
                         this.pendingResolve = null;
                     }
                 }
             },
             
-            // Set skill level (0-20, where 20 is strongest)
-            setSkillLevel(level) {
-                if (!this.worker) return;
-                // Convert 1-10 scale to Stockfish 0-20 scale
-                const stockfishLevel = Math.round((level / 10) * 20);
-                this.worker.postMessage(`setoption name Skill Level value ${stockfishLevel}`);
-                
-                // Also limit search depth for lower levels
-                if (level <= 3) {
-                    this.worker.postMessage('setoption name Skill Level Maximum Error value 900');
-                    this.worker.postMessage('setoption name Skill Level Probability value 128');
-                } else if (level <= 6) {
-                    this.worker.postMessage('setoption name Skill Level Maximum Error value 600');
-                    this.worker.postMessage('setoption name Skill Level Probability value 80');
-                } else {
-                    this.worker.postMessage('setoption name Skill Level Maximum Error value 200');
-                    this.worker.postMessage('setoption name Skill Level Probability value 30');
-                }
-            },
-            
-            // Get best move for a position
-            getBestMove(fen, skillLevel = 10, timeMs = 1000) {
+            // Get best move for a position - FULL STRENGTH at level 10
+            getBestMove(fen, skillLevel = 10, timeMs = 2000) {
                 return new Promise((resolve, reject) => {
-                    if (!this.worker || !this.isReady) {
+                    if (!this.worker) {
                         reject('Engine not ready');
                         return;
                     }
@@ -2924,47 +2938,67 @@
                     this.isThinking = true;
                     this.bestMove = null;
                     this.currentEval = 0;
+                    this.depth = 0;
+                    this.pv = '';
                     
-                    // Set skill level
-                    this.setSkillLevel(skillLevel);
+                    // Configure skill level (1-10 to Stockfish 0-20)
+                    // Level 10 = Full strength (Skill Level 20)
+                    const stockfishSkill = Math.round((skillLevel / 10) * 20);
                     
-                    // Adjust thinking time and depth based on skill
-                    let depth = 20;
-                    let moveTime = timeMs;
-                    
-                    if (skillLevel <= 2) {
-                        depth = 3;
-                        moveTime = 200;
-                    } else if (skillLevel <= 4) {
-                        depth = 6;
-                        moveTime = 400;
-                    } else if (skillLevel <= 6) {
-                        depth = 10;
-                        moveTime = 600;
-                    } else if (skillLevel <= 8) {
-                        depth = 14;
-                        moveTime = 800;
+                    // For level 10, use full strength
+                    if (skillLevel >= 10) {
+                        this.send('setoption name Skill Level value 20');
+                        this.send('setoption name UCI_LimitStrength value false');
+                    } else {
+                        this.send(`setoption name Skill Level value ${stockfishSkill}`);
+                        this.send('setoption name UCI_LimitStrength value true');
+                        // Map skill 1-9 to ELO roughly 800-2500
+                        const elo = 800 + (skillLevel - 1) * 200;
+                        this.send(`setoption name UCI_Elo value ${elo}`);
                     }
+                    
+                    this.send('isready');
                     
                     this.pendingResolve = resolve;
                     
-                    // Set position and search
-                    this.worker.postMessage(`position fen ${fen}`);
-                    this.worker.postMessage(`go depth ${depth} movetime ${moveTime}`);
+                    // Calculate search parameters based on skill
+                    let depth, movetime;
+                    if (skillLevel >= 10) {
+                        depth = 22;
+                        movetime = timeMs;
+                    } else if (skillLevel >= 8) {
+                        depth = 18;
+                        movetime = 1500;
+                    } else if (skillLevel >= 6) {
+                        depth = 14;
+                        movetime = 1000;
+                    } else if (skillLevel >= 4) {
+                        depth = 10;
+                        movetime = 700;
+                    } else {
+                        depth = 6;
+                        movetime = 400;
+                    }
                     
-                    // Timeout safety
+                    // Set position and search
+                    this.send('ucinewgame');
+                    this.send(`position fen ${fen}`);
+                    this.send(`go depth ${depth} movetime ${movetime}`);
+                    
+                    // Timeout safety - give extra time
                     setTimeout(() => {
-                        if (this.isThinking && this.pendingResolve) {
-                            this.worker.postMessage('stop');
+                        if (this.isThinking) {
+                            console.log('⏱️ Stockfish search timeout, stopping...');
+                            this.send('stop');
                         }
-                    }, moveTime + 2000);
+                    }, movetime + 5000);
                 });
             },
             
-            // Analyze a position (get evaluation)
-            analyzePosition(fen, depth = 18) {
+            // Analyze a position at full strength
+            analyzePosition(fen, depth = 20) {
                 return new Promise((resolve, reject) => {
-                    if (!this.worker || !this.isReady) {
+                    if (!this.worker) {
                         reject('Engine not ready');
                         return;
                     }
@@ -2972,36 +3006,40 @@
                     this.isThinking = true;
                     this.currentEval = 0;
                     this.bestMove = null;
+                    this.depth = 0;
                     
-                    // Set to maximum strength for analysis
-                    this.worker.postMessage('setoption name Skill Level value 20');
+                    // Full strength for analysis
+                    this.send('setoption name Skill Level value 20');
+                    this.send('setoption name UCI_LimitStrength value false');
+                    this.send('isready');
                     
                     this.pendingResolve = resolve;
                     
-                    this.worker.postMessage(`position fen ${fen}`);
-                    this.worker.postMessage(`go depth ${depth}`);
+                    this.send('ucinewgame');
+                    this.send(`position fen ${fen}`);
+                    this.send(`go depth ${depth}`);
                     
                     // Timeout
                     setTimeout(() => {
-                        if (this.isThinking && this.pendingResolve) {
-                            this.worker.postMessage('stop');
+                        if (this.isThinking) {
+                            this.send('stop');
                         }
-                    }, 5000);
+                    }, 8000);
                 });
             },
             
-            // Stop any ongoing calculation
+            // Stop calculation
             stop() {
                 if (this.worker && this.isThinking) {
-                    this.worker.postMessage('stop');
+                    this.send('stop');
                 }
             },
             
             // New game
             newGame() {
                 if (this.worker) {
-                    this.worker.postMessage('ucinewgame');
-                    this.worker.postMessage('isready');
+                    this.send('ucinewgame');
+                    this.send('isready');
                 }
             }
         };
@@ -3013,7 +3051,7 @@
             try {
                 await StockfishEngine.init();
                 engineReady = true;
-                console.log('🎮 Stockfish engine initialized successfully!');
+                console.log('🎮 Stockfish 16 engine initialized successfully!');
             } catch (err) {
                 console.warn('⚠️ Stockfish failed to initialize, will use server fallback:', err);
                 engineReady = false;
@@ -4349,13 +4387,19 @@
         // Get AI response move using browser Stockfish
         async function getEngineResponseMove() {
             try {
-                if (engineReady && StockfishEngine.isReady) {
-                    console.log('🎯 Getting AI response from browser Stockfish (Level ' + game.engineSkill + ')');
+                // Try browser Stockfish first
+                if (engineReady && StockfishEngine.worker) {
+                    console.log(`🎯 Stockfish thinking at Level ${game.engineSkill}...`);
                     
-                    const result = await StockfishEngine.getBestMove(game.fen, game.engineSkill, 1500);
+                    // Give more time for higher skill levels
+                    const thinkTime = game.engineSkill >= 10 ? 3000 : (game.engineSkill >= 7 ? 2000 : 1500);
                     
-                    if (result && result.move) {
-                        // Apply the AI move
+                    const result = await StockfishEngine.getBestMove(game.fen, game.engineSkill, thinkTime);
+                    
+                    if (result && result.move && result.move !== '(none)') {
+                        console.log(`✅ Stockfish found: ${result.move} (eval: ${result.eval}, depth: ${result.depth})`);
+                        
+                        // Apply the AI move via server to validate
                         const moveResult = await applyEngineMove(result.move);
                         
                         if (moveResult && moveResult.success) {
@@ -4380,12 +4424,16 @@
                             renderPieces();
                             updateCapturedPieces();
                             return;
+                        } else {
+                            console.warn('Move validation failed, trying server...');
                         }
+                    } else {
+                        console.warn('Stockfish returned no move, trying server...');
                     }
                 }
                 
                 // Fallback to server API if browser engine fails
-                console.log('⚡ Falling back to server for AI response');
+                console.log('⚡ Using server engine for AI response');
                 const res = await fetch('/api/engine_move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -4426,7 +4474,7 @@
         // Analyze player move for coaching using browser Stockfish
         async function analyzePlayerMove(move, newFen) {
             try {
-                if (!engineReady || !StockfishEngine.isReady) return;
+                if (!engineReady || !StockfishEngine.worker) return;
                 
                 // Get evaluation before the move (from previous position)
                 // and evaluation after to calculate CPL
@@ -5015,16 +5063,21 @@
         async function getEngineFirstMove() {
             try {
                 // Use browser Stockfish engine
-                if (engineReady && StockfishEngine.isReady) {
-                    console.log('🎯 Using browser Stockfish for AI move');
+                if (engineReady && StockfishEngine.worker) {
+                    console.log(`🎯 Stockfish making first move at Level ${game.engineSkill}...`);
                     StockfishEngine.newGame();
                     
-                    const result = await StockfishEngine.getBestMove(game.fen, game.engineSkill, 1500);
+                    // Give more time for first move and higher skill
+                    const thinkTime = game.engineSkill >= 10 ? 3000 : 2000;
                     
-                    if (result && result.move) {
-                        // Apply the move locally
+                    const result = await StockfishEngine.getBestMove(game.fen, game.engineSkill, thinkTime);
+                    
+                    if (result && result.move && result.move !== '(none)') {
+                        console.log(`✅ Stockfish opening: ${result.move} (eval: ${result.eval}, depth: ${result.depth})`);
+                        
+                        // Apply the move via server validation
                         const moveResult = await applyEngineMove(result.move);
-                        if (moveResult) {
+                        if (moveResult && moveResult.success) {
                             game.moveHistory.push({
                                 from: result.move.slice(0, 2),
                                 to: result.move.slice(2, 4),
@@ -5043,7 +5096,7 @@
                 }
                 
                 // Fallback to server API
-                console.log('⚡ Falling back to server for AI move');
+                console.log('⚡ Using server engine for first move');
                 const res = await fetch('/api/engine_move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
