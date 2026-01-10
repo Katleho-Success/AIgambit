@@ -1,0 +1,11 @@
+# Ignore these files
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.exe
+.env
+venv/
+.venv/
+user_data/
+*.log
