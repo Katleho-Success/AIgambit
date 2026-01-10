@@ -9,7 +9,6 @@ Open: http://localhost:5000
 from flask import Flask, render_template, jsonify, request, session
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
-from flask_sqlalchemy import SQLAlchemy
 import chess
 import chess.engine
 import os
@@ -19,34 +18,12 @@ import threading
 import time
 import math
 import uuid
-import random
-import requests
 import hashlib
-import re
 from datetime import datetime
-from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'aigambit_secret_key_2025_secure')
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('RAILWAY_ENVIRONMENT') is not None  # True for HTTPS on Railway
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-
-# Database configuration - use PostgreSQL on Railway, SQLite locally
-DATABASE_URL = os.environ.get('DATABASE_URL')
-if DATABASE_URL:
-    # Railway PostgreSQL - fix the URL format if needed
-    if DATABASE_URL.startswith('postgres://'):
-        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-else:
-    # Local SQLite database
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.dirname(__file__), 'aigambit.db')
-
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
-
-CORS(app, supports_credentials=True)
+app.secret_key = 'aigambit_secret_key_2025_secure'
+CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global engine instance
@@ -57,1345 +34,200 @@ engine_lock = threading.Lock()
 online_games = {}  # game_id -> game data
 waiting_players = []  # list of players waiting for match
 player_sessions = {}  # socket_id -> player data
+matchmaking_lock = threading.Lock()
 
-# Stats file paths (fallback for local dev)
-STATS_FILE = os.path.join(os.path.dirname(__file__), 'player_stats.json')
-GAMES_FILE = os.path.join(os.path.dirname(__file__), 'saved_games.json')
-PLAYER_STYLE_FILE = os.path.join(os.path.dirname(__file__), 'player_style.json')
-CLONE_MODEL_FILE = os.path.join(os.path.dirname(__file__), 'clone_model.json')
-USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
+# Time control presets (in seconds)
+TIME_PRESETS = {
+    'bullet1': 60,      # 1 min
+    'bullet2': 120,     # 2 min
+    'blitz3': 180,      # 3 min
+    'blitz5': 300,      # 5 min
+    'rapid10': 600,     # 10 min
+    'rapid15': 900,     # 15 min
+    'rapid30': 1800,    # 30 min
+}
+
+# Tournament storage
+tournaments = {}  # tournament_id -> tournament data
 TOURNAMENTS_FILE = os.path.join(os.path.dirname(__file__), 'tournaments.json')
-LEADERBOARD_FILE = os.path.join(os.path.dirname(__file__), 'global_leaderboard.json')
 
-# ============== DATABASE MODELS ==============
+# Data directory for user-specific files
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'user_data')
+USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
 
-class User(db.Model):
-    __tablename__ = 'users'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(20), unique=True, nullable=False, index=True)
-    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(64), nullable=False)
-    rating = db.Column(db.Integer, default=1200)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # JSON fields for complex data
-    stats = db.Column(db.Text, default='{}')  # JSON string
-    games = db.Column(db.Text, default='[]')  # JSON string
-    clone_model = db.Column(db.Text, default='{}')  # JSON string
-    player_style = db.Column(db.Text, default='{}')  # JSON string
-    settings = db.Column(db.Text, default='{}')  # JSON string
-    
-    def to_dict(self):
-        return {
-            'username': self.username,
-            'email': self.email,
-            'password_hash': self.password_hash,
-            'rating': self.rating,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'stats': json.loads(self.stats or '{}'),
-            'games': json.loads(self.games or '[]'),
-            'clone_model': json.loads(self.clone_model or '{}'),
-            'player_style': json.loads(self.player_style or '{}'),
-            'settings': json.loads(self.settings or '{}')
-        }
-
-class Tournament(db.Model):
-    __tablename__ = 'tournaments'
-    
-    id = db.Column(db.String(8), primary_key=True)
-    name = db.Column(db.String(50), nullable=False)
-    host = db.Column(db.String(20), nullable=False)
-    format = db.Column(db.String(20), default='swiss')
-    time_control = db.Column(db.String(20), default='10+0')
-    base_time = db.Column(db.Integer, default=600)
-    increment = db.Column(db.Integer, default=0)
-    start_time = db.Column(db.DateTime, nullable=True)
-    max_players = db.Column(db.Integer, default=64)
-    total_rounds = db.Column(db.Integer, default=5)
-    current_round = db.Column(db.Integer, default=0)
-    status = db.Column(db.String(20), default='open')
-    description = db.Column(db.Text, default='')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    started_at = db.Column(db.DateTime, nullable=True)
-    ended_at = db.Column(db.DateTime, nullable=True)
-    
-    # JSON fields
-    players = db.Column(db.Text, default='[]')
-    scores = db.Column(db.Text, default='{}')
-    games = db.Column(db.Text, default='{}')
-    pairings = db.Column(db.Text, default='{}')
-    previous_pairings = db.Column(db.Text, default='[]')
-    bracket = db.Column(db.Text, nullable=True)
-    results = db.Column(db.Text, default='[]')
-    final_standings = db.Column(db.Text, nullable=True)
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'host': self.host,
-            'format': self.format,
-            'time_control': self.time_control,
-            'base_time': self.base_time,
-            'increment': self.increment,
-            'start_time': self.start_time.isoformat() if self.start_time else None,
-            'max_players': self.max_players,
-            'total_rounds': self.total_rounds,
-            'current_round': self.current_round,
-            'status': self.status,
-            'description': self.description,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'started_at': self.started_at.isoformat() if self.started_at else None,
-            'ended_at': self.ended_at.isoformat() if self.ended_at else None,
-            'players': json.loads(self.players or '[]'),
-            'scores': json.loads(self.scores or '{}'),
-            'games': json.loads(self.games or '{}'),
-            'pairings': json.loads(self.pairings or '{}'),
-            'previous_pairings': json.loads(self.previous_pairings or '[]'),
-            'bracket': json.loads(self.bracket) if self.bracket else None,
-            'results': json.loads(self.results or '[]'),
-            'final_standings': json.loads(self.final_standings) if self.final_standings else None
-        }
-
-class Leaderboard(db.Model):
-    __tablename__ = 'leaderboard'
-    
-    username = db.Column(db.String(20), primary_key=True)
-    total_points = db.Column(db.Integer, default=0)
-    tournaments_played = db.Column(db.Integer, default=0)
-    tournaments_won = db.Column(db.Integer, default=0)
-    total_games = db.Column(db.Integer, default=0)
-    total_wins = db.Column(db.Integer, default=0)
-    best_placement = db.Column(db.Integer, nullable=True)
-    history = db.Column(db.Text, default='[]')  # JSON string
-    
-    def to_dict(self):
-        return {
-            'username': self.username,
-            'total_points': self.total_points,
-            'tournaments_played': self.tournaments_played,
-            'tournaments_won': self.tournaments_won,
-            'total_games': self.total_games,
-            'total_wins': self.total_wins,
-            'best_placement': self.best_placement,
-            'history': json.loads(self.history or '[]')
-        }
-
-# Create tables
-with app.app_context():
-    db.create_all()
+# Ensure data directory exists
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
 
 # ============== USER AUTHENTICATION ==============
 
 def hash_password(password):
-    """Hash password with salt"""
-    salt = 'aigambit_salt_2025'
+    """Hash password using SHA256 with salt"""
+    salt = "aigambit_salt_2025"
     return hashlib.sha256((password + salt).encode()).hexdigest()
 
-def validate_email(email):
-    """Basic email validation"""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
+def load_users():
+    """Load all users"""
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
 
-def validate_username(username):
-    """Username must be 3-20 chars, alphanumeric and underscores only"""
-    pattern = r'^[a-zA-Z0-9_]{3,20}$'
-    return re.match(pattern, username) is not None
-
-def get_user(username):
-    """Get user by username (case-insensitive) from database"""
-    user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
-    return user.to_dict() if user else None
-
-def get_user_by_email(email):
-    """Get user by email from database"""
-    user = User.query.filter(db.func.lower(User.email) == email.lower()).first()
-    return user.to_dict() if user else None
-
-def create_user(username, email, password):
-    """Create a new user account in database"""
-    # Check if username exists (case-insensitive)
-    if User.query.filter(db.func.lower(User.username) == username.lower()).first():
-        return None, "Username already taken"
-    
-    # Check if email exists
-    if User.query.filter(db.func.lower(User.email) == email.lower()).first():
-        return None, "Email already registered"
-    
-    # Create user with default stats
-    default_stats = {
-        'games_played': 0,
-        'wins': 0,
-        'losses': 0,
-        'draws': 0,
-        'rating': 1200
-    }
-    
-    default_style = {
-        'opening_moves': {},
-        'piece_preferences': {},
-        'move_patterns': {},
-        'time_usage': [],
-        'risk_score': 50
-    }
-    
-    default_settings = {
-        'board_theme': 'green',
-        'piece_set': 'cburnett',
-        'show_coords': True,
-        'sound_enabled': True
-    }
-    
-    user = User(
-        username=username,
-        email=email.lower(),
-        password_hash=hash_password(password),
-        rating=1200,
-        stats=json.dumps(default_stats),
-        games=json.dumps([]),
-        clone_model=json.dumps({}),
-        player_style=json.dumps(default_style),
-        settings=json.dumps(default_settings)
-    )
-    
-    db.session.add(user)
-    db.session.commit()
-    
-    return user.to_dict(), None
-
-def update_user(username, updates):
-    """Update user data in database"""
-    user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
-    if user:
-        for key, value in updates.items():
-            if key == 'stats':
-                user.stats = json.dumps(value)
-            elif key == 'games':
-                user.games = json.dumps(value)
-            elif key == 'clone_model':
-                user.clone_model = json.dumps(value)
-            elif key == 'player_style':
-                user.player_style = json.dumps(value)
-            elif key == 'settings':
-                user.settings = json.dumps(value)
-            elif key == 'rating':
-                user.rating = value
-            elif hasattr(user, key):
-                setattr(user, key, value)
-        db.session.commit()
-        return True
-    return False
+def save_users(users):
+    """Save users database"""
+    try:
+        with open(USERS_FILE, 'w') as f:
+            json.dump(users, f, indent=2)
+    except Exception as e:
+        print(f"Error saving users: {e}")
 
 def get_current_user():
-    """Get currently logged in user from session"""
-    if 'user' in session:
-        return get_user(session['user'])
-    return None
+    """Get the current logged-in user from session"""
+    return session.get('username', None)
 
-def login_required(f):
-    """Decorator to require login for API routes"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Login required'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+def get_user_data_path(username, filename):
+    """Get path to user-specific data file"""
+    user_dir = os.path.join(DATA_DIR, username)
+    if not os.path.exists(user_dir):
+        os.makedirs(user_dir)
+    return os.path.join(user_dir, filename)
 
-# Auth API Routes
-@app.route('/api/auth/signup', methods=['POST'])
-def signup():
-    """Register a new user"""
-    data = request.json
-    username = data.get('username', '').strip()
-    email = data.get('email', '').strip()
-    password = data.get('password', '')
-    
-    # Validation
-    if not username or not email or not password:
-        return jsonify({'success': False, 'error': 'All fields are required'})
-    
-    if not validate_username(username):
-        return jsonify({'success': False, 'error': 'Username must be 3-20 characters, letters, numbers and underscores only'})
-    
-    if not validate_email(email):
-        return jsonify({'success': False, 'error': 'Invalid email address'})
-    
-    if len(password) < 6:
-        return jsonify({'success': False, 'error': 'Password must be at least 6 characters'})
-    
-    # Create user
-    user, error = create_user(username, email, password)
-    if error:
-        return jsonify({'success': False, 'error': error})
-    
-    # Auto login after signup
-    session['user'] = username
-    session.permanent = True
-    
-    return jsonify({
-        'success': True,
-        'user': {
-            'username': user['username'],
-            'email': user['email'],
-            'rating': user['rating'],
-            'stats': user['stats']
-        }
-    })
+# ============== USER-SPECIFIC DATA FUNCTIONS ==============
 
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    """Login user"""
-    data = request.json
-    login_id = data.get('username', '').strip()  # Can be username or email
-    password = data.get('password', '')
-    
-    if not login_id or not password:
-        return jsonify({'success': False, 'error': 'Username/email and password required'})
-    
-    # Try to find user by username or email
-    user = get_user(login_id)
-    if not user:
-        user = get_user_by_email(login_id)
-    
-    if not user:
-        return jsonify({'success': False, 'error': 'User not found'})
-    
-    # Check password
-    if user['password_hash'] != hash_password(password):
-        return jsonify({'success': False, 'error': 'Incorrect password'})
-    
-    # Set session
-    session['user'] = user['username']
-    session.permanent = True
-    
-    return jsonify({
-        'success': True,
-        'user': {
-            'username': user['username'],
-            'email': user['email'],
-            'rating': user['rating'],
-            'stats': user['stats']
-        }
-    })
-
-@app.route('/api/auth/logout', methods=['POST'])
-def logout():
-    """Logout user"""
-    session.pop('user', None)
-    return jsonify({'success': True})
-
-@app.route('/api/auth/me', methods=['GET'])
-def get_me():
-    """Get current logged in user"""
-    user = get_current_user()
-    if not user:
-        return jsonify({'success': False, 'logged_in': False})
-    
-    return jsonify({
-        'success': True,
-        'logged_in': True,
-        'user': {
-            'username': user['username'],
-            'email': user['email'],
-            'rating': user['rating'],
-            'stats': user['stats'],
-            'created_at': user.get('created_at'),
-            'settings': user.get('settings', {})
-        }
-    })
-
-@app.route('/api/auth/update-profile', methods=['POST'])
-@login_required
-def update_profile():
-    """Update user profile settings"""
-    data = request.json
-    user = get_current_user()
-    
-    if not user:
-        return jsonify({'success': False, 'error': 'Not logged in'})
-    
-    # Update allowed fields
-    updates = {}
-    if 'settings' in data:
-        updates['settings'] = data['settings']
-    
-    if updates:
-        update_user(session['user'], updates)
-    
-    return jsonify({'success': True})
-
-# ============== TOURNAMENT SYSTEM ==============
-
-def load_tournaments():
-    """Load all tournaments from database as dict"""
-    tournaments = Tournament.query.all()
-    return {t.id: t.to_dict() for t in tournaments}
-
-def save_tournament(tournament_data):
-    """Save or update a tournament in database"""
-    tournament = Tournament.query.get(tournament_data['id'])
-    if not tournament:
-        tournament = Tournament(id=tournament_data['id'])
-        db.session.add(tournament)
-    
-    tournament.name = tournament_data.get('name', '')
-    tournament.host = tournament_data.get('host', '')
-    tournament.format = tournament_data.get('format', 'swiss')
-    tournament.time_control = tournament_data.get('time_control', '10+0')
-    tournament.base_time = tournament_data.get('base_time', 600)
-    tournament.increment = tournament_data.get('increment', 0)
-    tournament.start_time = datetime.fromisoformat(tournament_data['start_time']) if tournament_data.get('start_time') else None
-    tournament.max_players = tournament_data.get('max_players', 64)
-    tournament.total_rounds = tournament_data.get('total_rounds', 5)
-    tournament.current_round = tournament_data.get('current_round', 0)
-    tournament.status = tournament_data.get('status', 'open')
-    tournament.description = tournament_data.get('description', '')
-    tournament.started_at = datetime.fromisoformat(tournament_data['started_at']) if tournament_data.get('started_at') else None
-    tournament.ended_at = datetime.fromisoformat(tournament_data['ended_at']) if tournament_data.get('ended_at') else None
-    tournament.players = json.dumps(tournament_data.get('players', []))
-    tournament.scores = json.dumps(tournament_data.get('scores', {}))
-    tournament.games = json.dumps(tournament_data.get('games', {}))
-    tournament.pairings = json.dumps(tournament_data.get('pairings', {}))
-    tournament.previous_pairings = json.dumps(tournament_data.get('previous_pairings', []))
-    tournament.bracket = json.dumps(tournament_data.get('bracket')) if tournament_data.get('bracket') else None
-    tournament.results = json.dumps(tournament_data.get('results', []))
-    tournament.final_standings = json.dumps(tournament_data.get('final_standings')) if tournament_data.get('final_standings') else None
-    
-    db.session.commit()
-
-def delete_tournament(tournament_id):
-    """Delete tournament from database"""
-    tournament = Tournament.query.get(tournament_id)
-    if tournament:
-        db.session.delete(tournament)
-        db.session.commit()
-
-def load_leaderboard():
-    """Load global leaderboard from database as dict"""
-    entries = Leaderboard.query.all()
-    return {e.username: e.to_dict() for e in entries}
-
-def update_leaderboard_db(username, tournament_id, placement, points):
-    """Update player's global leaderboard stats in database"""
-    entry = Leaderboard.query.get(username)
-    if not entry:
-        entry = Leaderboard(username=username)
-        db.session.add(entry)
-    
-    entry.total_points += points
-    entry.tournaments_played += 1
-    if placement == 1:
-        entry.tournaments_won += 1
-    if entry.best_placement is None or placement < entry.best_placement:
-        entry.best_placement = placement
-    
-    history = json.loads(entry.history or '[]')
-    history.append({
-        'tournament_id': tournament_id,
-        'placement': placement,
-        'points': points,
-        'date': datetime.now().isoformat()
-    })
-    entry.history = json.dumps(history)
-    
-    db.session.commit()
-
-def generate_swiss_pairings(players, scores, round_num, previous_pairings):
-    """
-    Generate Swiss-system pairings.
-    Players with similar scores play each other.
-    Avoid repeat pairings when possible.
-    """
-    # Sort players by score (descending)
-    sorted_players = sorted(players, key=lambda p: scores.get(p, 0), reverse=True)
-    
-    pairings = []
-    paired = set()
-    
-    for i, player1 in enumerate(sorted_players):
-        if player1 in paired:
-            continue
-        
-        # Find best opponent (similar score, hasn't played before)
-        best_opponent = None
-        for j in range(i + 1, len(sorted_players)):
-            player2 = sorted_players[j]
-            if player2 in paired:
-                continue
-            
-            # Check if they've played before
-            pair_key = tuple(sorted([player1, player2]))
-            if pair_key not in previous_pairings:
-                best_opponent = player2
-                break
-        
-        # If no unpaired opponent found, take anyone available
-        if not best_opponent:
-            for j in range(i + 1, len(sorted_players)):
-                player2 = sorted_players[j]
-                if player2 not in paired:
-                    best_opponent = player2
-                    break
-        
-        if best_opponent:
-            # Alternate colors based on round
-            if round_num % 2 == 0:
-                pairings.append({'white': player1, 'black': best_opponent})
-            else:
-                pairings.append({'white': best_opponent, 'black': player1})
-            paired.add(player1)
-            paired.add(best_opponent)
-    
-    # Handle odd number of players (bye)
-    for player in sorted_players:
-        if player not in paired:
-            pairings.append({'white': player, 'black': None, 'bye': True})
-    
-    return pairings
-
-def generate_knockout_bracket(players):
-    """Generate single-elimination bracket"""
-    random.shuffle(players)
-    
-    # Pad to power of 2
-    bracket_size = 1
-    while bracket_size < len(players):
-        bracket_size *= 2
-    
-    # Add byes for missing players
-    bracket = list(players)
-    while len(bracket) < bracket_size:
-        bracket.append(None)  # Bye
-    
-    return bracket
-
-@app.route('/api/tournaments', methods=['GET'])
-def list_tournaments():
-    """List all tournaments with filtering"""
-    status = request.args.get('status', None)  # open, in_progress, completed
-    tournaments = load_tournaments()
-    
-    result = []
-    for tid, t in tournaments.items():
-        # Filter by status if specified
-        if status and t.get('status') != status:
-            continue
-        
-        result.append({
-            'id': tid,
-            'name': t['name'],
-            'host': t['host'],
-            'format': t['format'],
-            'time_control': t['time_control'],
-            'start_time': t['start_time'],
-            'status': t['status'],
-            'player_count': len(t.get('players', [])),
-            'max_players': t.get('max_players', 64),
-            'rounds': t.get('total_rounds', 0),
-            'current_round': t.get('current_round', 0),
-            'created_at': t.get('created_at')
-        })
-    
-    # Sort by start time
-    result.sort(key=lambda x: x.get('start_time', ''), reverse=True)
-    
-    return jsonify({'success': True, 'tournaments': result})
-
-@app.route('/api/tournaments/create', methods=['POST'])
-@login_required
-def create_tournament():
-    """Create a new tournament"""
-    data = request.json
-    user = get_current_user()
-    
-    name = data.get('name', '').strip()
-    format_type = data.get('format', 'swiss')  # swiss, knockout, arena
-    time_control = data.get('time_control', '10+0')  # e.g., "10+0", "5+3", "3+2"
-    start_time = data.get('start_time')  # ISO format datetime
-    max_players = data.get('max_players', 64)
-    rounds = data.get('rounds', 5)  # For Swiss
-    description = data.get('description', '')
-    
-    # Validation
-    if not name or len(name) < 3:
-        return jsonify({'success': False, 'error': 'Tournament name must be at least 3 characters'})
-    if len(name) > 50:
-        return jsonify({'success': False, 'error': 'Tournament name too long (max 50 chars)'})
-    if format_type not in ['swiss', 'knockout', 'arena']:
-        return jsonify({'success': False, 'error': 'Invalid tournament format'})
-    if max_players < 4 or max_players > 256:
-        return jsonify({'success': False, 'error': 'Max players must be between 4 and 256'})
-    if rounds < 1 or rounds > 15:
-        return jsonify({'success': False, 'error': 'Rounds must be between 1 and 15'})
-    
-    # Parse time control
-    try:
-        if '+' in time_control:
-            base, inc = time_control.split('+')
-            base_time = int(base)
-            increment = int(inc)
-        else:
-            base_time = int(time_control)
-            increment = 0
-        if base_time < 1 or base_time > 180:
-            raise ValueError("Invalid base time")
-    except:
-        return jsonify({'success': False, 'error': 'Invalid time control format (use e.g., "10+0" or "5+3")'})
-    
-    tournament_id = str(uuid.uuid4())[:8]
-    
-    tournament = {
-        'id': tournament_id,
-        'name': name,
-        'host': user['username'],
-        'format': format_type,
-        'time_control': time_control,
-        'base_time': base_time * 60,  # Convert to seconds
-        'increment': increment,
-        'start_time': start_time,
-        'max_players': max_players,
-        'total_rounds': rounds if format_type == 'swiss' else None,
-        'current_round': 0,
-        'status': 'open',  # open, in_progress, completed
-        'players': [user['username']],  # Host auto-joins
-        'scores': {user['username']: 0},
-        'games': {},  # round -> list of games
-        'pairings': {},  # round -> pairings
-        'previous_pairings': [],  # Track who played who
-        'bracket': None,  # For knockout
-        'results': [],
-        'description': description,
-        'created_at': datetime.now().isoformat(),
-        'started_at': None,
-        'ended_at': None
-    }
-    
-    save_tournament(tournament)
-    
-    return jsonify({'success': True, 'tournament': tournament})
-
-@app.route('/api/tournaments/<tournament_id>', methods=['GET'])
-def get_tournament(tournament_id):
-    """Get tournament details"""
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    return jsonify({'success': True, 'tournament': tournaments[tournament_id]})
-
-@app.route('/api/tournaments/<tournament_id>/join', methods=['POST'])
-@login_required
-def join_tournament(tournament_id):
-    """Join a tournament"""
-    user = get_current_user()
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    tournament = tournaments[tournament_id]
-    
-    if tournament['status'] != 'open':
-        return jsonify({'success': False, 'error': 'Tournament is not open for registration'})
-    
-    if user['username'] in tournament['players']:
-        return jsonify({'success': False, 'error': 'Already joined this tournament'})
-    
-    if len(tournament['players']) >= tournament['max_players']:
-        return jsonify({'success': False, 'error': 'Tournament is full'})
-    
-    tournament['players'].append(user['username'])
-    tournament['scores'][user['username']] = 0
-    save_tournament(tournament)
-    
-    # Notify all players via WebSocket
-    socketio.emit('tournament_update', {
-        'type': 'player_joined',
-        'tournament_id': tournament_id,
-        'player': user['username'],
-        'player_count': len(tournament['players'])
-    }, room=f'tournament_{tournament_id}')
-    
-    return jsonify({'success': True, 'tournament': tournament})
-
-@app.route('/api/tournaments/<tournament_id>/leave', methods=['POST'])
-@login_required
-def leave_tournament(tournament_id):
-    """Leave a tournament before it starts"""
-    user = get_current_user()
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    tournament = tournaments[tournament_id]
-    
-    if tournament['status'] != 'open':
-        return jsonify({'success': False, 'error': 'Cannot leave a tournament in progress'})
-    
-    if user['username'] not in tournament['players']:
-        return jsonify({'success': False, 'error': 'Not in this tournament'})
-    
-    if user['username'] == tournament['host']:
-        return jsonify({'success': False, 'error': 'Host cannot leave. Cancel the tournament instead.'})
-    
-    tournament['players'].remove(user['username'])
-    del tournament['scores'][user['username']]
-    save_tournament(tournament)
-    
-    socketio.emit('tournament_update', {
-        'type': 'player_left',
-        'tournament_id': tournament_id,
-        'player': user['username'],
-        'player_count': len(tournament['players'])
-    }, room=f'tournament_{tournament_id}')
-    
-    return jsonify({'success': True})
-
-@app.route('/api/tournaments/<tournament_id>/start', methods=['POST'])
-@login_required
-def start_tournament(tournament_id):
-    """Start the tournament (host only)"""
-    user = get_current_user()
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    tournament = tournaments[tournament_id]
-    
-    if user['username'] != tournament['host']:
-        return jsonify({'success': False, 'error': 'Only the host can start the tournament'})
-    
-    if tournament['status'] != 'open':
-        return jsonify({'success': False, 'error': 'Tournament already started or completed'})
-    
-    if len(tournament['players']) < 2:
-        return jsonify({'success': False, 'error': 'Need at least 2 players to start'})
-    
-    tournament['status'] = 'in_progress'
-    tournament['started_at'] = datetime.now().isoformat()
-    tournament['current_round'] = 1
-    
-    # Generate first round pairings
-    if tournament['format'] == 'swiss':
-        pairings = generate_swiss_pairings(
-            tournament['players'],
-            tournament['scores'],
-            1,
-            set()
-        )
-        tournament['pairings']['1'] = pairings
-    elif tournament['format'] == 'knockout':
-        bracket = generate_knockout_bracket(tournament['players'])
-        tournament['bracket'] = bracket
-        # Generate first round from bracket
-        pairings = []
-        for i in range(0, len(bracket), 2):
-            if bracket[i] and bracket[i+1]:
-                pairings.append({'white': bracket[i], 'black': bracket[i+1]})
-            elif bracket[i]:
-                pairings.append({'white': bracket[i], 'black': None, 'bye': True})
-            elif bracket[i+1]:
-                pairings.append({'white': bracket[i+1], 'black': None, 'bye': True})
-        tournament['pairings']['1'] = pairings
-    
-    save_tournament(tournament)
-    
-    socketio.emit('tournament_update', {
-        'type': 'tournament_started',
-        'tournament_id': tournament_id,
-        'pairings': tournament['pairings']['1']
-    }, room=f'tournament_{tournament_id}')
-    
-    return jsonify({'success': True, 'tournament': tournament})
-
-@app.route('/api/tournaments/<tournament_id>/result', methods=['POST'])
-@login_required
-def report_result(tournament_id):
-    """Report a game result"""
-    data = request.json
-    user = get_current_user()
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    tournament = tournaments[tournament_id]
-    
-    if tournament['status'] != 'in_progress':
-        return jsonify({'success': False, 'error': 'Tournament is not in progress'})
-    
-    game_id = data.get('game_id')
-    result = data.get('result')  # '1-0', '0-1', '1/2-1/2'
-    white = data.get('white')
-    black = data.get('black')
-    
-    if result not in ['1-0', '0-1', '1/2-1/2']:
-        return jsonify({'success': False, 'error': 'Invalid result'})
-    
-    # Update scores
-    if result == '1-0':
-        tournament['scores'][white] = tournament['scores'].get(white, 0) + 1
-    elif result == '0-1':
-        tournament['scores'][black] = tournament['scores'].get(black, 0) + 1
-    else:  # Draw
-        tournament['scores'][white] = tournament['scores'].get(white, 0) + 0.5
-        tournament['scores'][black] = tournament['scores'].get(black, 0) + 0.5
-    
-    # Track pairing
-    pair_key = tuple(sorted([white, black]))
-    if pair_key not in tournament['previous_pairings']:
-        tournament['previous_pairings'].append(pair_key)
-    
-    # Store game result
-    round_key = str(tournament['current_round'])
-    if round_key not in tournament['games']:
-        tournament['games'][round_key] = []
-    
-    tournament['games'][round_key].append({
-        'game_id': game_id,
-        'white': white,
-        'black': black,
-        'result': result,
-        'reported_at': datetime.now().isoformat()
-    })
-    
-    save_tournament(tournament)
-    
-    # Notify tournament room
-    socketio.emit('tournament_update', {
-        'type': 'game_result',
-        'tournament_id': tournament_id,
-        'round': tournament['current_round'],
-        'white': white,
-        'black': black,
-        'result': result,
-        'scores': tournament['scores']
-    }, room=f'tournament_{tournament_id}')
-    
-    return jsonify({'success': True, 'scores': tournament['scores']})
-
-@app.route('/api/tournaments/<tournament_id>/next-round', methods=['POST'])
-@login_required
-def next_round(tournament_id):
-    """Advance to next round (host only)"""
-    user = get_current_user()
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    tournament = tournaments[tournament_id]
-    
-    if user['username'] != tournament['host']:
-        return jsonify({'success': False, 'error': 'Only the host can advance rounds'})
-    
-    if tournament['status'] != 'in_progress':
-        return jsonify({'success': False, 'error': 'Tournament is not in progress'})
-    
-    current_round = tournament['current_round']
-    
-    # Check if tournament should end
-    if tournament['format'] == 'swiss':
-        if current_round >= tournament['total_rounds']:
-            return end_tournament_internal(tournament_id, tournaments)
-    elif tournament['format'] == 'knockout':
-        # Check if only one player remains
-        remaining = [p for p in tournament['players'] if tournament['scores'].get(p, 0) > 0 or current_round == 1]
-        if len(remaining) <= 1:
-            return end_tournament_internal(tournament_id, tournaments)
-    
-    # Advance to next round
-    tournament['current_round'] = current_round + 1
-    
-    # Generate new pairings
-    if tournament['format'] == 'swiss':
-        pairings = generate_swiss_pairings(
-            tournament['players'],
-            tournament['scores'],
-            tournament['current_round'],
-            set(tuple(p) for p in tournament['previous_pairings'])
-        )
-        tournament['pairings'][str(tournament['current_round'])] = pairings
-    
-    save_tournament(tournament)
-    
-    socketio.emit('tournament_update', {
-        'type': 'new_round',
-        'tournament_id': tournament_id,
-        'round': tournament['current_round'],
-        'pairings': tournament['pairings'][str(tournament['current_round'])]
-    }, room=f'tournament_{tournament_id}')
-    
-    return jsonify({'success': True, 'tournament': tournament})
-
-@app.route('/api/tournaments/<tournament_id>/end', methods=['POST'])
-@login_required
-def end_tournament(tournament_id):
-    """End the tournament (host only)"""
-    user = get_current_user()
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    tournament = tournaments[tournament_id]
-    
-    if user['username'] != tournament['host']:
-        return jsonify({'success': False, 'error': 'Only the host can end the tournament'})
-    
-    return end_tournament_internal(tournament_id, tournaments)
-
-def end_tournament_internal(tournament_id, tournaments):
-    """Internal function to end tournament and update leaderboard"""
-    tournament = tournaments[tournament_id]
-    tournament['status'] = 'completed'
-    tournament['ended_at'] = datetime.now().isoformat()
-    
-    # Calculate final standings
-    standings = sorted(
-        tournament['scores'].items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
-    
-    tournament['final_standings'] = standings
-    
-    # Update global leaderboard
-    for placement, (username, score) in enumerate(standings, 1):
-        # Points based on placement and tournament size
-        points = max(0, len(standings) - placement + 1) * 10
-        if placement == 1:
-            points += 50  # Bonus for winning
-        elif placement == 2:
-            points += 25
-        elif placement == 3:
-            points += 10
-        
-        update_leaderboard_db(username, tournament_id, placement, points)
-    
-    save_tournament(tournament)
-    
-    socketio.emit('tournament_update', {
-        'type': 'tournament_ended',
-        'tournament_id': tournament_id,
-        'standings': standings
-    }, room=f'tournament_{tournament_id}')
-    
-    return jsonify({'success': True, 'standings': standings})
-
-@app.route('/api/tournaments/<tournament_id>/cancel', methods=['POST'])
-@login_required
-def cancel_tournament(tournament_id):
-    """Cancel a tournament (host only, before it starts)"""
-    user = get_current_user()
-    tournaments = load_tournaments()
-    
-    if tournament_id not in tournaments:
-        return jsonify({'success': False, 'error': 'Tournament not found'})
-    
-    tournament = tournaments[tournament_id]
-    
-    if user['username'] != tournament['host']:
-        return jsonify({'success': False, 'error': 'Only the host can cancel the tournament'})
-    
-    if tournament['status'] == 'in_progress':
-        return jsonify({'success': False, 'error': 'Cannot cancel a tournament in progress'})
-    
-    delete_tournament(tournament_id)
-    
-    socketio.emit('tournament_update', {
-        'type': 'tournament_cancelled',
-        'tournament_id': tournament_id
-    }, room=f'tournament_{tournament_id}')
-    
-    return jsonify({'success': True})
-
-@app.route('/api/leaderboard', methods=['GET'])
-def get_leaderboard():
-    """Get global leaderboard"""
-    leaderboard = load_leaderboard()
-    
-    # Sort by total points
-    sorted_lb = sorted(
-        leaderboard.values(),
-        key=lambda x: x['total_points'],
-        reverse=True
-    )
-    
-    # Add rank
-    for i, player in enumerate(sorted_lb, 1):
-        player['rank'] = i
-    
-    return jsonify({'success': True, 'leaderboard': sorted_lb})
-
-@app.route('/api/leaderboard/<username>', methods=['GET'])
-def get_player_ranking(username):
-    """Get specific player's ranking info"""
-    leaderboard = load_leaderboard()
-    
-    if username not in leaderboard:
-        return jsonify({'success': False, 'error': 'Player not found in leaderboard'})
-    
-    # Calculate rank
-    sorted_lb = sorted(
-        leaderboard.items(),
-        key=lambda x: x[1]['total_points'],
-        reverse=True
-    )
-    
-    rank = 1
-    for uname, data in sorted_lb:
-        if uname == username:
-            break
-        rank += 1
-    
-    player_data = leaderboard[username]
-    player_data['rank'] = rank
-    player_data['total_players'] = len(leaderboard)
-    
-    return jsonify({'success': True, 'player': player_data})
-
-# WebSocket handlers for tournaments
-@socketio.on('join_tournament_room')
-def on_join_tournament_room(data):
-    """Join tournament room for real-time updates"""
-    tournament_id = data.get('tournament_id')
-    if tournament_id:
-        join_room(f'tournament_{tournament_id}')
-        emit('tournament_room_joined', {'tournament_id': tournament_id})
-
-@socketio.on('leave_tournament_room')
-def on_leave_tournament_room(data):
-    """Leave tournament room"""
-    tournament_id = data.get('tournament_id')
-    if tournament_id:
-        leave_room(f'tournament_{tournament_id}')
-
-# ============== LICHESS CLOUD API ==============
-def get_lichess_move(fen, skill=10):
-    """
-    Get a move from Lichess Cloud API (free, no API key needed).
-    Uses cloud evaluation when local Stockfish is not available.
-    """
-    try:
-        # Lichess cloud evaluation endpoint
-        url = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen)}&multiPv=5"
-        response = requests.get(url, timeout=3, headers={'Accept': 'application/json'})
-        
-        if response.status_code == 200:
-            data = response.json()
-            if 'pvs' in data and len(data['pvs']) > 0:
-                pvs = data['pvs']
-                return pvs  # Return all PVs for skill-based selection
-        
-        return None
-    except Exception as e:
-        print(f"Lichess API error: {e}")
-        return None
-
-def evaluate_move_heuristic(board, move):
-    """
-    Evaluate a move using heuristics. Returns a score (higher = better).
-    Used when no engine is available.
-    """
-    score = 0
-    piece_values = {'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 0}
-    
-    moving_piece = board.piece_at(move.from_square)
-    if not moving_piece:
-        return 0
-    
-    moving_value = piece_values.get(moving_piece.symbol().lower(), 0)
-    
-    # Checkmate is always best
-    board.push(move)
-    if board.is_checkmate():
-        board.pop()
-        return 100000
-    
-    # Check is good
-    if board.is_check():
-        score += 50
-    board.pop()
-    
-    # Captures
-    if board.is_capture(move):
-        captured = board.piece_at(move.to_square)
-        if captured:
-            captured_value = piece_values.get(captured.symbol().lower(), 0)
-            # Material gain/loss
-            score += captured_value
-            
-            # Check if capture is safe (not defended by lower value piece)
-            board.push(move)
-            attackers = board.attackers(board.turn, move.to_square)
-            board.pop()
-            
-            if attackers:
-                min_attacker_value = min([piece_values.get(board.piece_at(sq).symbol().lower(), 1000) 
-                                          for sq in attackers if board.piece_at(sq)] or [1000])
-                if min_attacker_value < moving_value:
-                    # We might lose the piece
-                    score -= (moving_value - captured_value)
-    
-    # Promotion
-    if move.promotion:
-        promo_values = {chess.QUEEN: 800, chess.ROOK: 400, chess.BISHOP: 230, chess.KNIGHT: 220}
-        score += promo_values.get(move.promotion, 0)
-    
-    # Center control (especially in opening)
-    center_squares = [chess.D4, chess.E4, chess.D5, chess.E5]
-    extended_center = [chess.C3, chess.D3, chess.E3, chess.F3, chess.C4, chess.F4, 
-                       chess.C5, chess.F5, chess.C6, chess.D6, chess.E6, chess.F6]
-    
-    if move.to_square in center_squares:
-        score += 30
-    elif move.to_square in extended_center:
-        score += 15
-    
-    # Development (moving pieces from back rank in opening)
-    if board.fullmove_number <= 10:
-        from_rank = chess.square_rank(move.from_square)
-        piece_type = moving_piece.symbol().lower()
-        
-        if piece_type in ['n', 'b']:
-            # Developing knights/bishops
-            if (moving_piece.color == chess.WHITE and from_rank == 0) or \
-               (moving_piece.color == chess.BLACK and from_rank == 7):
-                score += 25
-        
-        # Castling is good
-        if piece_type == 'k' and abs(move.to_square - move.from_square) == 2:
-            score += 60
-    
-    # Avoid hanging pieces
-    board.push(move)
-    to_square = move.to_square
-    attackers = board.attackers(board.turn, to_square)  # Opponent's attackers
-    defenders = board.attackers(not board.turn, to_square)  # Our defenders after move
-    board.pop()
-    
-    if attackers and not defenders:
-        # We're hanging the piece!
-        score -= moving_value
-    
-    # Avoid moving king in opening (unless castling)
-    if moving_piece.symbol().lower() == 'k' and board.fullmove_number <= 10:
-        if abs(move.to_square - move.from_square) != 2:  # Not castling
-            score -= 40
-    
-    return score
-
-def get_ranked_moves(board):
-    """
-    Get all legal moves ranked by heuristic evaluation.
-    Returns list of (move, score) tuples sorted by score descending.
-    """
-    legal_moves = list(board.legal_moves)
-    if not legal_moves:
-        return []
-    
-    # First check for checkmates
-    for move in legal_moves:
-        board.push(move)
-        if board.is_checkmate():
-            board.pop()
-            return [(move, 100000)]  # Checkmate always wins
-        board.pop()
-    
-    scored_moves = []
-    for move in legal_moves:
-        score = evaluate_move_heuristic(board, move)
-        scored_moves.append((move, score))
-    
-    # Sort by score descending
-    scored_moves.sort(key=lambda x: x[1], reverse=True)
-    return scored_moves
-
-def select_move_by_skill(board, skill, ranked_moves=None):
-    """
-    Select a move based on skill level using ranked moves.
-    Higher skill = more likely to pick top moves.
-    Lower skill = more randomness and deliberate mistakes.
-    """
-    if ranked_moves is None:
-        ranked_moves = get_ranked_moves(board)
-    
-    if not ranked_moves:
-        legal_moves = list(board.legal_moves)
-        return random.choice(legal_moves) if legal_moves else None
-    
-    # Always play checkmate if available
-    if ranked_moves[0][1] >= 100000:
-        return ranked_moves[0][0]
-    
-    num_moves = len(ranked_moves)
-    
-    # Skill 1-3: Very weak - often picks bad moves
-    if skill <= 3:
-        # Pick from bottom 60% of moves, 60% of the time
-        if random.random() < 0.6:
-            bad_start = max(1, int(num_moves * 0.4))
-            return random.choice([m[0] for m in ranked_moves[bad_start:]])
-        # Otherwise random from all
-        return random.choice([m[0] for m in ranked_moves])
-    
-    # Skill 4-6: Weak - often misses best moves
-    elif skill <= 6:
-        # Pick from top 30% only 30% of the time
-        if random.random() < 0.3:
-            top_count = max(1, int(num_moves * 0.3))
-            return random.choice([m[0] for m in ranked_moves[:top_count]])
-        # Pick from middle 50%
-        elif random.random() < 0.5:
-            mid_start = max(1, int(num_moves * 0.2))
-            mid_end = max(mid_start + 1, int(num_moves * 0.7))
-            return random.choice([m[0] for m in ranked_moves[mid_start:mid_end]])
-        # Random
-        return random.choice([m[0] for m in ranked_moves])
-    
-    # Skill 7-10: Intermediate - sometimes finds good moves
-    elif skill <= 10:
-        # Probability of best move increases with skill
-        best_chance = 0.3 + (skill - 7) * 0.1  # 30% to 60%
-        if random.random() < best_chance:
-            top_count = max(1, int(num_moves * 0.2))
-            return random.choice([m[0] for m in ranked_moves[:top_count]])
-        # Good move (top 50%)
-        elif random.random() < 0.6:
-            top_count = max(1, int(num_moves * 0.5))
-            return random.choice([m[0] for m in ranked_moves[:top_count]])
-        # Random from top 80%
-        top_count = max(1, int(num_moves * 0.8))
-        return random.choice([m[0] for m in ranked_moves[:top_count]])
-    
-    # Skill 11-14: Good - usually finds good moves
-    elif skill <= 14:
-        best_chance = 0.5 + (skill - 11) * 0.1  # 50% to 80%
-        if random.random() < best_chance:
-            top_count = max(1, int(num_moves * 0.15))
-            return random.choice([m[0] for m in ranked_moves[:top_count]])
-        # Top 40%
-        top_count = max(1, int(num_moves * 0.4))
-        return random.choice([m[0] for m in ranked_moves[:top_count]])
-    
-    # Skill 15-17: Strong - almost always good moves
-    elif skill <= 17:
-        best_chance = 0.7 + (skill - 15) * 0.08  # 70% to 86%
-        if random.random() < best_chance:
-            top_count = max(1, int(num_moves * 0.1))
-            return random.choice([m[0] for m in ranked_moves[:top_count]])
-        # Top 25%
-        top_count = max(1, int(num_moves * 0.25))
-        return random.choice([m[0] for m in ranked_moves[:top_count]])
-    
-    # Skill 18-20: Expert - plays best or near-best
-    else:
-        best_chance = 0.85 + (skill - 18) * 0.05  # 85% to 95%
-        if random.random() < best_chance:
-            # Best move or top 2
-            top_count = min(2, num_moves)
-            return random.choice([m[0] for m in ranked_moves[:top_count]])
-        # Top 15%
-        top_count = max(1, int(num_moves * 0.15))
-        return random.choice([m[0] for m in ranked_moves[:top_count]])
-
-def get_random_smart_move(board, skill=5):
-    """
-    Generate a reasonable move without an engine.
-    Used as ultimate fallback when no API/engine available.
-    """
-    legal_moves = list(board.legal_moves)
-    if not legal_moves:
-        return None
-    
-    # Categorize moves
-    checkmates = []
-    checks = []
-    captures = []
-    promotions = []
-    center_moves = []
-    other_moves = []
-    
-    center_squares = [chess.D4, chess.E4, chess.D5, chess.E5]
-    
-    for move in legal_moves:
-        board.push(move)
-        if board.is_checkmate():
-            board.pop()
-            checkmates.append(move)
-            continue
-        board.pop()
-        
-        if board.gives_check(move):
-            checks.append(move)
-        if board.is_capture(move):
-            captures.append(move)
-        if move.promotion:
-            promotions.append(move)
-        if move.to_square in center_squares:
-            center_moves.append(move)
-        else:
-            other_moves.append(move)
-    
-    # Priority order based on skill
-    if checkmates:
-        return random.choice(checkmates)
-    
-    if skill >= 8:
-        # Higher skill: prioritize captures and checks
-        if promotions and random.random() < 0.9:
-            return random.choice(promotions)
-        if captures and random.random() < 0.7:
-            return random.choice(captures)
-        if checks and random.random() < 0.5:
-            return random.choice(checks)
-    elif skill >= 4:
-        # Medium skill: sometimes good moves
-        if promotions and random.random() < 0.7:
-            return random.choice(promotions)
-        if captures and random.random() < 0.5:
-            return random.choice(captures)
-    else:
-        # Low skill: mostly random
-        if promotions and random.random() < 0.3:
-            return random.choice(promotions)
-    
-    # Prefer center moves in opening
-    if center_moves and random.random() < 0.4:
-        return random.choice(center_moves)
-    
-    return random.choice(legal_moves)
-
-def load_stats(username=None):
-    """Load player statistics - user-specific if logged in"""
-    # If username provided, get user-specific stats
-    if username:
-        user = get_user(username)
-        if user and 'stats' in user:
-            stats = user['stats']
-            # Ensure all fields exist
-            default_stats = get_default_stats()
-            for key in default_stats:
-                if key not in stats:
-                    stats[key] = default_stats[key]
-            return stats
-    
-    # Fall back to global stats file for anonymous users
-    if os.path.exists(STATS_FILE):
+def load_user_stats(username=None):
+    """Load player statistics for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return get_default_stats()
+    
+    stats_file = get_user_data_path(username, 'stats.json')
+    if os.path.exists(stats_file):
         try:
-            with open(STATS_FILE, 'r') as f:
+            with open(stats_file, 'r') as f:
                 return json.load(f)
         except:
             pass
     return get_default_stats()
 
+def save_user_stats(stats, username=None):
+    """Save player statistics for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return False
+    
+    stats_file = get_user_data_path(username, 'stats.json')
+    try:
+        with open(stats_file, 'w') as f:
+            json.dump(stats, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving stats for {username}: {e}")
+        return False
+
+def load_user_games(username=None):
+    """Load saved games for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return []
+    
+    games_file = get_user_data_path(username, 'games.json')
+    if os.path.exists(games_file):
+        try:
+            with open(games_file, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return []
+
+def save_user_games(games, username=None):
+    """Save games list for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return False
+    
+    games_file = get_user_data_path(username, 'games.json')
+    try:
+        games = games[-50:]  # Keep last 50 games
+        with open(games_file, 'w') as f:
+            json.dump(games, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving games for {username}: {e}")
+        return False
+
+def load_user_style(username=None):
+    """Load player style for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return init_player_style()
+    
+    style_file = get_user_data_path(username, 'player_style.json')
+    if os.path.exists(style_file):
+        try:
+            with open(style_file, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return init_player_style()
+
+def save_user_style(style, username=None):
+    """Save player style for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return False
+    
+    style_file = get_user_data_path(username, 'player_style.json')
+    try:
+        with open(style_file, 'w') as f:
+            json.dump(style, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving style for {username}: {e}")
+        return False
+
+def load_user_clone_model(username=None):
+    """Load clone model for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return {}
+    
+    model_file = get_user_data_path(username, 'clone_model.json')
+    if os.path.exists(model_file):
+        try:
+            with open(model_file, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_user_clone_model(model, username=None):
+    """Save clone model for specific user"""
+    if username is None:
+        username = get_current_user()
+    if username is None:
+        return False
+    
+    model_file = get_user_data_path(username, 'clone_model.json')
+    try:
+        with open(model_file, 'w') as f:
+            json.dump(model, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving clone model for {username}: {e}")
+        return False
+
 def get_default_stats():
-    """Return default stats structure"""
+    """Return default stats for new users"""
     return {
         'rating': 1200,
         'games_played': 0,
@@ -1410,74 +242,30 @@ def get_default_stats():
         'achievements': []
     }
 
-def save_stats(stats, username=None):
-    """Save player statistics - user-specific if logged in"""
-    if username:
-        user = get_user(username)
-        if user:
-            user['stats'] = stats
-            user['rating'] = stats.get('rating', 1200)
-            update_user(username, user)
-            return
-    
-    # Fall back to global stats file
-    try:
-        with open(STATS_FILE, 'w') as f:
-            json.dump(stats, f, indent=2)
-    except Exception as e:
-        print(f"Error saving stats: {e}")
+# Legacy compatibility functions (redirect to user-specific)
+def load_stats():
+    return load_user_stats()
 
-def load_games(username=None):
-    """Load saved games - user-specific if logged in"""
-    if username:
-        user = get_user(username)
-        if user and 'games' in user:
-            return user['games']
-        return []
-    
-    # Fall back to global games file
-    if os.path.exists(GAMES_FILE):
-        try:
-            with open(GAMES_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return []
+def save_stats(stats):
+    return save_user_stats(stats)
 
-def save_games(games, username=None):
-    """Save games list - user-specific if logged in"""
-    games = games[-50:]  # Keep last 50 games
-    
-    if username:
-        user = get_user(username)
-        if user:
-            user['games'] = games
-            update_user(username, user)
-            return
-    
-    # Fall back to global games file
-    try:
-        with open(GAMES_FILE, 'w') as f:
-            json.dump(games, f, indent=2)
-    except Exception as e:
-        print(f"Error saving games: {e}")
+def load_games():
+    return load_user_games()
 
-def load_player_style(username=None):
-    """Load player style profile for clone AI - user-specific if logged in"""
-    if username:
-        user = get_user(username)
-        if user and 'player_style' in user:
-            return user['player_style']
-        return init_player_style()
-    
-    # Fall back to global file
-    if os.path.exists(PLAYER_STYLE_FILE):
-        try:
-            with open(PLAYER_STYLE_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return init_player_style()
+def save_games(games):
+    return save_user_games(games)
+
+def load_player_style():
+    return load_user_style()
+
+def save_player_style(style):
+    return save_user_style(style)
+
+def load_clone_model():
+    return load_user_clone_model()
+
+def save_clone_model(model):
+    return save_user_clone_model(model)
 
 def init_player_style():
     """Initialize comprehensive player style tracking"""
@@ -1538,54 +326,17 @@ def init_player_style():
         'total_moves_analyzed': 0
     }
 
-def save_player_style(style, username=None):
-    """Save player style profile - user-specific if logged in"""
-    if username:
-        user = get_user(username)
-        if user:
-            user['player_style'] = style
-            update_user(username, user)
-            return
-    
-    # Fall back to global file
-    try:
-        with open(PLAYER_STYLE_FILE, 'w') as f:
-            json.dump(style, f, indent=2)
-    except Exception as e:
-        print(f"Error saving player style: {e}")
+def save_player_style(style):
+    """Save player style profile - redirects to user-specific version"""
+    return save_user_style(style)
 
-def load_clone_model(username=None):
-    """Load the clone model (position -> move preferences) - user-specific if logged in"""
-    if username:
-        user = get_user(username)
-        if user and 'clone_model' in user:
-            return user['clone_model']
-        return {}
-    
-    # Fall back to global file
-    if os.path.exists(CLONE_MODEL_FILE):
-        try:
-            with open(CLONE_MODEL_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
+def load_clone_model():
+    """Load the clone model - redirects to user-specific version"""
+    return load_user_clone_model()
 
-def save_clone_model(model, username=None):
-    """Save clone model - user-specific if logged in"""
-    if username:
-        user = get_user(username)
-        if user:
-            user['clone_model'] = model
-            update_user(username, user)
-            return
-    
-    # Fall back to global file
-    try:
-        with open(CLONE_MODEL_FILE, 'w') as f:
-            json.dump(model, f, indent=2)
-    except Exception as e:
-        print(f"Error saving clone model: {e}")
+def save_clone_model(model):
+    """Save clone model - redirects to user-specific version"""
+    return save_user_clone_model(model)
 
 def analyze_move_type(board, move):
     """Analyze what type of move this is"""
@@ -1631,9 +382,9 @@ def analyze_move_type(board, move):
     
     return move_info
 
-def update_player_style_from_game(game_data, username=None):
-    """Update player style based on a completed game - user-specific if logged in"""
-    style = load_player_style(username)
+def update_player_style_from_game(game_data):
+    """Update player style based on a completed game"""
+    style = load_player_style()
     moves = game_data.get('moves', [])
     player_color = game_data.get('player_color', 'white')
     
@@ -1722,7 +473,7 @@ def update_player_style_from_game(game_data, username=None):
                         style['first_moves_black'][move_san] = style['first_moves_black'].get(move_san, 0) + 1
                 
                 # Update clone model with position -> move mapping
-                update_clone_model_position(board.fen(), move.uci(), player_color, username)
+                update_clone_model_position(board.fen(), move.uci(), player_color)
                 
                 # Determine game phase
                 if move_number < 10:
@@ -1770,11 +521,11 @@ def update_player_style_from_game(game_data, username=None):
     style['games_analyzed'] += 1
     style['total_moves_analyzed'] += player_moves_in_game
     
-    save_player_style(style, username)
+    save_player_style(style)
 
-def update_clone_model_position(fen, move_uci, player_color, username=None):
-    """Update clone model with a position -> move mapping - user-specific if logged in"""
-    model = load_clone_model(username)
+def update_clone_model_position(fen, move_uci, player_color):
+    """Update clone model with a position -> move mapping"""
+    model = load_clone_model()
     
     # Use board position only (not turn info, castling rights, etc for simpler matching)
     board_key = fen.split()[0]
@@ -1796,110 +547,159 @@ def update_clone_model_position(fen, move_uci, player_color, username=None):
         for key in sorted_keys[:500]:
             del model[key]
     
-    save_clone_model(model, username)
+    save_clone_model(model)
 
 def get_skill_adjusted_move(board, skill):
     """
     Get a move adjusted for skill level (1-20).
-    Uses local Stockfish if available, otherwise uses intelligent heuristics.
-    Lower skill = more mistakes, higher skill = stronger play.
+    Lower skill = more mistakes, random moves, misses tactics.
+    NOTE: This function should be called WITHOUT engine_lock held.
     """
+    import random
     
     legal_moves = list(board.legal_moves)
     if not legal_moves:
         return None
     
-    # If we have a local engine, use it with Stockfish's skill level
-    if engine:
-        with engine_lock:
-            try:
-                # Map our 1-20 scale to Stockfish's 0-20 skill level
-                sf_skill = max(0, min(20, skill))
-                engine.configure({"Skill Level": sf_skill})
-                
-                # Adjust depth and time based on skill
-                if skill <= 5:
-                    depth = max(1, skill)
-                    think_time = 0.05
-                elif skill <= 10:
-                    depth = skill - 2
-                    think_time = 0.1
-                elif skill <= 15:
-                    depth = skill - 1
-                    think_time = 0.2 + (skill - 10) * 0.05
-                else:
-                    depth = min(20, skill + 2)
-                    think_time = 0.5 + (skill - 15) * 0.1
-                
-                result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
-                return result.move
-            except Exception as e:
-                print(f"Engine error: {e}")
-    
-    # No local engine - try Lichess Cloud API for cached evaluations
-    cloud_data = get_lichess_move(board.fen(), skill)
-    if cloud_data and isinstance(cloud_data, list) and len(cloud_data) > 0:
-        # cloud_data is now a list of PVs with evaluations
-        try:
-            # For high skill, pick top move; for low skill, pick worse moves
-            if skill >= 18:
-                # Almost always best move
-                pv = cloud_data[0]['moves'].split()[0]
-            elif skill >= 14:
-                # Usually best, sometimes 2nd best
-                idx = 0 if random.random() < 0.85 else min(1, len(cloud_data) - 1)
-                pv = cloud_data[idx]['moves'].split()[0]
-            elif skill >= 10:
-                # Mix of top moves
-                idx = 0 if random.random() < 0.6 else min(random.randint(1, 2), len(cloud_data) - 1)
-                pv = cloud_data[idx]['moves'].split()[0]
-            elif skill >= 6:
-                # Often picks 2nd or 3rd best
-                if len(cloud_data) > 1:
-                    idx = random.randint(0, min(2, len(cloud_data) - 1))
-                else:
-                    idx = 0
-                pv = cloud_data[idx]['moves'].split()[0]
-            else:
-                # Low skill - often ignore cloud move entirely
-                if random.random() < 0.5 and len(cloud_data) > 1:
-                    idx = min(random.randint(1, 3), len(cloud_data) - 1)
-                    pv = cloud_data[idx]['moves'].split()[0]
-                else:
-                    # Fall through to heuristic
-                    return select_move_by_skill(board, skill)
+    # Skill 1-3: Very beginner - often random, rarely finds good moves
+    if skill <= 3:
+        # 70% chance of random move at skill 1, 40% at skill 3
+        random_chance = 0.7 - (skill - 1) * 0.15
+        if random.random() < random_chance:
+            # Prefer non-hanging moves if possible
+            safe_moves = []
+            for move in legal_moves:
+                board.push(move)
+                # Check if we're hanging a piece
+                is_safe = True
+                for opp_move in board.legal_moves:
+                    if board.is_capture(opp_move):
+                        # We might be hanging something
+                        is_safe = False
+                        break
+                board.pop()
+                if is_safe:
+                    safe_moves.append(move)
             
-            move = chess.Move.from_uci(pv)
-            if move in legal_moves:
-                return move
-        except Exception as e:
-            print(f"Cloud move parse error: {e}")
+            if safe_moves and random.random() < 0.5:
+                return random.choice(safe_moves)
+            return random.choice(legal_moves)
+        
+        # Otherwise use engine with very low skill
+        if engine:
+            with engine_lock:
+                try:
+                    engine.configure({"Skill Level": 0})
+                    result = engine.play(board, chess.engine.Limit(depth=1, time=0.05))
+                    return result.move
+                except:
+                    pass
+        
+        return random.choice(legal_moves)
     
-    # Fallback: Use heuristic-based move selection
-    return select_move_by_skill(board, skill)
+    # Skill 4-6: Beginner - makes many mistakes
+    elif skill <= 6:
+        random_chance = 0.4 - (skill - 4) * 0.1  # 40% to 20%
+        if random.random() < random_chance:
+            # Pick a capture if available, otherwise random
+            captures = [m for m in legal_moves if board.is_capture(m)]
+            if captures and random.random() < 0.6:
+                return random.choice(captures)
+            return random.choice(legal_moves)
+        
+        if engine:
+            with engine_lock:
+                try:
+                    engine.configure({"Skill Level": skill - 2})
+                    depth = max(1, skill - 3)  # depth 1-3
+                    result = engine.play(board, chess.engine.Limit(depth=depth, time=0.08))
+                    return result.move
+                except:
+                    pass
+        
+        return random.choice(legal_moves)
+    
+    # Skill 7-10: Intermediate beginner - occasional blunders
+    elif skill <= 10:
+        random_chance = 0.15 - (skill - 7) * 0.03  # 15% to 6%
+        if random.random() < random_chance:
+            captures = [m for m in legal_moves if board.is_capture(m)]
+            checks = [m for m in legal_moves if board.gives_check(m)]
+            good_moves = list(set(captures + checks))
+            if good_moves:
+                return random.choice(good_moves)
+            return random.choice(legal_moves)
+        
+        if engine:
+            with engine_lock:
+                try:
+                    engine.configure({"Skill Level": skill})
+                    depth = skill - 4  # depth 3-6
+                    result = engine.play(board, chess.engine.Limit(depth=depth, time=0.15))
+                    return result.move
+                except:
+                    pass
+        
+        return random.choice(legal_moves)
+    
+    # Skill 11-14: Intermediate - plays reasonably
+    elif skill <= 14:
+        if engine:
+            with engine_lock:
+                try:
+                    engine.configure({"Skill Level": skill})
+                    depth = skill - 3  # depth 8-11
+                    think_time = 0.15 + (skill - 11) * 0.05  # 0.15s to 0.3s
+                    result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
+                    return result.move
+                except:
+                    pass
+        
+        return random.choice(legal_moves)
+    
+    # Skill 15-17: Advanced - plays well
+    elif skill <= 17:
+        if engine:
+            with engine_lock:
+                try:
+                    engine.configure({"Skill Level": skill})
+                    depth = skill - 2  # depth 13-15
+                    think_time = 0.25 + (skill - 15) * 0.1  # 0.25s to 0.45s
+                    result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
+                    return result.move
+                except:
+                    pass
+        
+        return random.choice(legal_moves)
+    
+    # Skill 18-20: Expert/Master - very strong
+    else:
+        if engine:
+            with engine_lock:
+                try:
+                    engine.configure({"Skill Level": 20})
+                    depth = 15 + (skill - 18)  # depth 15-17
+                    think_time = 0.5 + (skill - 18) * 0.25  # 0.5s to 1.0s
+                    result = engine.play(board, chess.engine.Limit(depth=depth, time=think_time))
+                    return result.move
+                except:
+                    pass
+        
+        return random.choice(legal_moves)
 
 def get_stockfish_path():
-    """Find Stockfish engine - supports Windows and Linux"""
+    """Find Stockfish engine"""
     if getattr(sys, 'frozen', False):
         app_dir = os.path.dirname(sys.executable)
     else:
         app_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Check if we're on Linux (cloud deployment) or Windows (local)
-    if sys.platform.startswith('linux'):
-        possible_paths = [
-            "/usr/games/stockfish",           # Ubuntu/Debian apt install
-            "/usr/bin/stockfish",             # Some Linux distros
-            "/usr/local/bin/stockfish",       # Manual install
-            os.path.join(app_dir, "stockfish"),
-        ]
-    else:
-        possible_paths = [
-            os.path.join(app_dir, "stockfish.exe"),
-            os.path.join(app_dir, "..", "dist", "stockfish.exe"),
-            r"C:\Stockfish\stockfish\stockfish-windows-x86-64.exe",
-            r"C:\Stockfish\stockfish.exe",
-        ]
+    possible_paths = [
+        os.path.join(app_dir, "stockfish.exe"),
+        os.path.join(app_dir, "..", "dist", "stockfish.exe"),
+        r"C:\Stockfish\stockfish\stockfish-windows-x86-64.exe",
+        r"C:\Stockfish\stockfish.exe",
+    ]
     
     for path in possible_paths:
         if os.path.exists(path):
@@ -1951,77 +751,152 @@ def handle_find_game(data):
     """Player looking for a game"""
     username = data.get('username', 'Anonymous')
     time_control = data.get('time_control', 600)
+    flexible = data.get('flexible', False)  # Accept flexible matching
+    rating = data.get('rating', 1200)
     sid = request.sid
     
     player_data = {
         'sid': sid,
         'username': username,
-        'time_control': time_control
+        'time_control': time_control,
+        'flexible': flexible,
+        'rating': rating,
+        'search_start': time.time()
     }
     player_sessions[sid] = player_data
     
-    # Look for a matching player
-    for waiting in waiting_players:
-        if waiting['time_control'] == time_control and waiting['sid'] != sid:
-            # Found a match! Create game
-            game_id = str(uuid.uuid4())[:8]
-            
-            # Randomly assign colors
-            import random
-            if random.random() < 0.5:
-                white_player, black_player = waiting, player_data
-            else:
-                white_player, black_player = player_data, waiting
-            
-            game = {
-                'id': game_id,
-                'board': chess.Board(),
-                'white_sid': white_player['sid'],
-                'black_sid': black_player['sid'],
-                'white_username': white_player['username'],
-                'black_username': black_player['username'],
-                'white_time': time_control,
-                'black_time': time_control,
-                'time_control': time_control,
-                'turn': 'white',
-                'last_move_time': time.time(),
-                'started': True
-            }
-            online_games[game_id] = game
-            
-            # Update player sessions
-            player_sessions[white_player['sid']]['game_id'] = game_id
-            player_sessions[white_player['sid']]['color'] = 'white'
-            player_sessions[black_player['sid']]['game_id'] = game_id
-            player_sessions[black_player['sid']]['color'] = 'black'
-            
-            # Remove matched player from waiting
-            waiting_players.remove(waiting)
-            
-            # Notify both players
-            emit('game_found', {
-                'game_id': game_id,
-                'color': 'white',
-                'opponent': black_player['username'],
-                'time_control': time_control,
-                'fen': game['board'].fen()
-            }, room=white_player['sid'])
-            
-            emit('game_found', {
-                'game_id': game_id,
-                'color': 'black',
-                'opponent': white_player['username'],
-                'time_control': time_control,
-                'fen': game['board'].fen()
-            }, room=black_player['sid'])
-            
-            print(f"Game started: {white_player['username']} vs {black_player['username']}")
-            return
+    with matchmaking_lock:
+        # First try exact time control match
+        for waiting in waiting_players:
+            if waiting['time_control'] == time_control and waiting['sid'] != sid:
+                # Found an exact match! Create game
+                create_online_game(waiting, player_data, time_control)
+                return
+        
+        # If flexible matching is enabled, try to find any match
+        if flexible:
+            for waiting in waiting_players:
+                if waiting['sid'] != sid and waiting.get('flexible', False):
+                    # Both players are flexible - find middle ground
+                    avg_time = (waiting['time_control'] + time_control) // 2
+                    # Round to nearest standard time
+                    standard_times = [60, 120, 180, 300, 600, 900, 1800]
+                    matched_time = min(standard_times, key=lambda x: abs(x - avg_time))
+                    create_online_game(waiting, player_data, matched_time)
+                    return
+        
+        # No match found, add to waiting list
+        waiting_players.append(player_data)
+        emit('waiting_for_opponent', {
+            'message': 'Looking for an opponent...',
+            'queue_position': len(waiting_players),
+            'time_control': time_control,
+            'flexible': flexible
+        })
+        print(f"{username} is waiting for a game ({time_control}s, flexible={flexible})")
+
+def create_online_game(player1, player2, time_control):
+    """Create a game between two players"""
+    import random
     
-    # No match found, add to waiting list
-    waiting_players.append(player_data)
-    emit('waiting_for_opponent', {'message': 'Looking for an opponent...'})
-    print(f"{username} is waiting for a game")
+    game_id = str(uuid.uuid4())[:8]
+    
+    # Randomly assign colors
+    if random.random() < 0.5:
+        white_player, black_player = player1, player2
+    else:
+        white_player, black_player = player2, player1
+    
+    game = {
+        'id': game_id,
+        'board': chess.Board(),
+        'white_sid': white_player['sid'],
+        'black_sid': black_player['sid'],
+        'white_username': white_player['username'],
+        'black_username': black_player['username'],
+        'white_rating': white_player.get('rating', 1200),
+        'black_rating': black_player.get('rating', 1200),
+        'white_time': time_control,
+        'black_time': time_control,
+        'time_control': time_control,
+        'original_white_time': player1['time_control'],
+        'original_black_time': player2['time_control'],
+        'turn': 'white',
+        'last_move_time': time.time(),
+        'started': True
+    }
+    online_games[game_id] = game
+    
+    # Update player sessions
+    player_sessions[white_player['sid']]['game_id'] = game_id
+    player_sessions[white_player['sid']]['color'] = 'white'
+    player_sessions[black_player['sid']]['game_id'] = game_id
+    player_sessions[black_player['sid']]['color'] = 'black'
+    
+    # Remove matched player from waiting
+    global waiting_players
+    waiting_players = [p for p in waiting_players if p['sid'] not in [player1['sid'], player2['sid']]]
+    
+    # Format time for display
+    def format_time(seconds):
+        if seconds >= 60:
+            return f"{seconds // 60} min"
+        return f"{seconds} sec"
+    
+    matched_msg = ""
+    if player1['time_control'] != time_control or player2['time_control'] != time_control:
+        matched_msg = f" (matched at {format_time(time_control)})"
+    
+    # Notify both players
+    socketio.emit('game_found', {
+        'game_id': game_id,
+        'color': 'white',
+        'opponent': black_player['username'],
+        'opponent_rating': black_player.get('rating', 1200),
+        'time_control': time_control,
+        'time_display': format_time(time_control),
+        'matched_message': matched_msg,
+        'fen': game['board'].fen()
+    }, room=white_player['sid'])
+    
+    socketio.emit('game_found', {
+        'game_id': game_id,
+        'color': 'black',
+        'opponent': white_player['username'],
+        'opponent_rating': white_player.get('rating', 1200),
+        'time_control': time_control,
+        'time_display': format_time(time_control),
+        'matched_message': matched_msg,
+        'fen': game['board'].fen()
+    }, room=black_player['sid'])
+    
+    print(f"Game started: {white_player['username']} vs {black_player['username']} ({format_time(time_control)}{matched_msg})")
+
+@socketio.on('enable_flexible_matching')
+def handle_enable_flexible(data):
+    """Enable flexible matching for a waiting player"""
+    sid = request.sid
+    
+    with matchmaking_lock:
+        # Update player's flexible status
+        for player in waiting_players:
+            if player['sid'] == sid:
+                player['flexible'] = True
+                
+                # Try to find a flexible match now
+                for other in waiting_players:
+                    if other['sid'] != sid and other.get('flexible', False):
+                        # Found another flexible player
+                        avg_time = (player['time_control'] + other['time_control']) // 2
+                        standard_times = [60, 120, 180, 300, 600, 900, 1800]
+                        matched_time = min(standard_times, key=lambda x: abs(x - avg_time))
+                        create_online_game(player, other, matched_time)
+                        return
+                
+                emit('flexible_enabled', {'message': 'Flexible matching enabled'})
+                return
+        
+        emit('error', {'message': 'Not in queue'})
 
 @socketio.on('cancel_search')
 def handle_cancel_search():
@@ -2235,21 +1110,614 @@ def learn():
 def review():
     return render_template('review.html')
 
+# ============== AUTHENTICATION ENDPOINTS ==============
+
+@app.route('/api/auth/signup', methods=['POST'])
+def signup():
+    """Register a new user"""
+    data = request.json
+    username = data.get('username', '').strip().lower()
+    password = data.get('password', '')
+    
+    # Validation
+    if len(username) < 3 or len(username) > 20:
+        return jsonify({'success': False, 'error': 'Username must be 3-20 characters'})
+    
+    if not username.isalnum():
+        return jsonify({'success': False, 'error': 'Username must be alphanumeric'})
+    
+    if len(password) < 4:
+        return jsonify({'success': False, 'error': 'Password must be at least 4 characters'})
+    
+    users = load_users()
+    
+    if username in users:
+        return jsonify({'success': False, 'error': 'Username already taken'})
+    
+    # Create user
+    users[username] = {
+        'password_hash': hash_password(password),
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'display_name': data.get('display_name', username)
+    }
+    save_users(users)
+    
+    # Initialize user data
+    save_user_stats(get_default_stats(), username)
+    save_user_games([], username)
+    save_user_style(init_player_style(), username)
+    save_user_clone_model({}, username)
+    
+    # Log them in
+    session['username'] = username
+    session['display_name'] = users[username]['display_name']
+    
+    return jsonify({
+        'success': True,
+        'message': 'Account created successfully!',
+        'user': {
+            'username': username,
+            'display_name': users[username]['display_name']
+        }
+    })
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Log in a user"""
+    data = request.json
+    username = data.get('username', '').strip().lower()
+    password = data.get('password', '')
+    
+    users = load_users()
+    
+    if username not in users:
+        return jsonify({'success': False, 'error': 'User not found'})
+    
+    if users[username]['password_hash'] != hash_password(password):
+        return jsonify({'success': False, 'error': 'Incorrect password'})
+    
+    # Set session
+    session['username'] = username
+    session['display_name'] = users[username].get('display_name', username)
+    
+    # Load user stats
+    stats = load_user_stats(username)
+    
+    return jsonify({
+        'success': True,
+        'message': 'Login successful!',
+        'user': {
+            'username': username,
+            'display_name': users[username].get('display_name', username)
+        },
+        'stats': stats
+    })
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """Log out current user"""
+    session.pop('username', None)
+    session.pop('display_name', None)
+    return jsonify({'success': True, 'message': 'Logged out'})
+
+@app.route('/api/auth/status', methods=['GET'])
+def auth_status():
+    """Check if user is logged in"""
+    username = get_current_user()
+    if username:
+        users = load_users()
+        display_name = users.get(username, {}).get('display_name', username)
+        stats = load_user_stats(username)
+        return jsonify({
+            'logged_in': True,
+            'user': {
+                'username': username,
+                'display_name': display_name
+            },
+            'stats': stats
+        })
+    return jsonify({'logged_in': False})
+
+@app.route('/api/auth/change-password', methods=['POST'])
+def change_password():
+    """Change user password"""
+    username = get_current_user()
+    if not username:
+        return jsonify({'success': False, 'error': 'Not logged in'})
+    
+    data = request.json
+    old_password = data.get('old_password', '')
+    new_password = data.get('new_password', '')
+    
+    users = load_users()
+    
+    if users[username]['password_hash'] != hash_password(old_password):
+        return jsonify({'success': False, 'error': 'Current password is incorrect'})
+    
+    if len(new_password) < 4:
+        return jsonify({'success': False, 'error': 'New password must be at least 4 characters'})
+    
+    users[username]['password_hash'] = hash_password(new_password)
+    save_users(users)
+    
+    return jsonify({'success': True, 'message': 'Password changed successfully'})
+
+# ============== TOURNAMENT SYSTEM ==============
+
+def load_tournaments():
+    """Load all tournaments from file"""
+    global tournaments
+    if os.path.exists(TOURNAMENTS_FILE):
+        try:
+            with open(TOURNAMENTS_FILE, 'r') as f:
+                tournaments = json.load(f)
+        except:
+            tournaments = {}
+    return tournaments
+
+def save_tournaments():
+    """Save tournaments to file"""
+    try:
+        with open(TOURNAMENTS_FILE, 'w') as f:
+            json.dump(tournaments, f, indent=2)
+    except Exception as e:
+        print(f"Error saving tournaments: {e}")
+
+def generate_tournament_id():
+    """Generate unique tournament ID"""
+    return str(uuid.uuid4())[:8].upper()
+
+def get_tournament_status(tournament):
+    """Determine tournament status based on time"""
+    now = datetime.now()
+    start_time = datetime.strptime(tournament['start_time'], '%Y-%m-%dT%H:%M')
+    
+    if tournament.get('finished'):
+        return 'finished'
+    elif tournament.get('started'):
+        return 'in_progress'
+    elif now >= start_time:
+        return 'starting'
+    else:
+        return 'upcoming'
+
+def calculate_swiss_pairings(tournament):
+    """Generate Swiss-system pairings for next round"""
+    players = tournament['players']
+    standings = tournament.get('standings', {})
+    
+    # Sort players by score
+    sorted_players = sorted(players, key=lambda p: standings.get(p['username'], {}).get('score', 0), reverse=True)
+    
+    pairings = []
+    paired = set()
+    
+    for i, player in enumerate(sorted_players):
+        if player['username'] in paired:
+            continue
+            
+        # Find opponent (next unpaired player)
+        for j in range(i + 1, len(sorted_players)):
+            opponent = sorted_players[j]
+            if opponent['username'] not in paired:
+                pairings.append({
+                    'white': player,
+                    'black': opponent,
+                    'game_id': str(uuid.uuid4())[:8],
+                    'result': None
+                })
+                paired.add(player['username'])
+                paired.add(opponent['username'])
+                break
+    
+    # Handle bye if odd number of players
+    for player in sorted_players:
+        if player['username'] not in paired:
+            pairings.append({
+                'white': player,
+                'black': None,  # Bye
+                'game_id': None,
+                'result': 'bye'
+            })
+            # Player with bye gets 1 point
+            if player['username'] not in standings:
+                standings[player['username']] = {'score': 0, 'games': 0, 'wins': 0, 'draws': 0, 'losses': 0}
+            standings[player['username']]['score'] += 1
+    
+    return pairings
+
+def calculate_arena_standings(tournament):
+    """Calculate arena tournament standings"""
+    standings = tournament.get('standings', {})
+    players = tournament['players']
+    
+    result = []
+    for player in players:
+        username = player['username']
+        stats = standings.get(username, {'score': 0, 'games': 0, 'wins': 0, 'draws': 0, 'losses': 0})
+        result.append({
+            'username': username,
+            'display_name': player.get('display_name', username),
+            'rating': player.get('rating', 1200),
+            **stats
+        })
+    
+    return sorted(result, key=lambda x: (-x['score'], -x['wins']))
+
+@app.route('/api/tournaments', methods=['GET'])
+def list_tournaments():
+    """List all tournaments"""
+    load_tournaments()
+    
+    result = []
+    for tid, t in tournaments.items():
+        status = get_tournament_status(t)
+        result.append({
+            'id': tid,
+            'name': t['name'],
+            'creator': t['creator'],
+            'format': t['format'],
+            'time_control': t['time_control'],
+            'start_time': t['start_time'],
+            'max_players': t['max_players'],
+            'player_count': len(t['players']),
+            'status': status,
+            'rated': t.get('rated', True),
+            'description': t.get('description', '')
+        })
+    
+    # Sort by start time (upcoming first)
+    result.sort(key=lambda x: x['start_time'])
+    return jsonify({'success': True, 'tournaments': result})
+
+@app.route('/api/tournaments/create', methods=['POST'])
+def create_tournament():
+    """Create a new tournament"""
+    username = get_current_user()
+    if not username:
+        return jsonify({'success': False, 'error': 'Must be logged in to create tournaments'})
+    
+    data = request.json
+    
+    # Validate required fields
+    name = data.get('name', '').strip()
+    if not name or len(name) < 3:
+        return jsonify({'success': False, 'error': 'Tournament name must be at least 3 characters'})
+    
+    format_type = data.get('format', 'arena')
+    if format_type not in ['arena', 'swiss', 'elimination']:
+        return jsonify({'success': False, 'error': 'Invalid tournament format'})
+    
+    # Time control: minutes + increment
+    time_minutes = int(data.get('time_minutes', 10))
+    time_increment = int(data.get('time_increment', 0))
+    if time_minutes < 1 or time_minutes > 180:
+        return jsonify({'success': False, 'error': 'Time control must be 1-180 minutes'})
+    
+    # Start time
+    start_time = data.get('start_time')
+    try:
+        start_dt = datetime.strptime(start_time, '%Y-%m-%dT%H:%M')
+        if start_dt < datetime.now():
+            return jsonify({'success': False, 'error': 'Start time must be in the future'})
+    except:
+        return jsonify({'success': False, 'error': 'Invalid start time format'})
+    
+    max_players = int(data.get('max_players', 64))
+    if max_players < 4 or max_players > 256:
+        return jsonify({'success': False, 'error': 'Max players must be 4-256'})
+    
+    # Create tournament
+    tid = generate_tournament_id()
+    users = load_users()
+    creator_display = users.get(username, {}).get('display_name', username)
+    creator_stats = load_user_stats(username)
+    
+    tournaments[tid] = {
+        'id': tid,
+        'name': name,
+        'creator': username,
+        'creator_display': creator_display,
+        'format': format_type,
+        'time_control': f"{time_minutes}+{time_increment}",
+        'time_minutes': time_minutes,
+        'time_increment': time_increment,
+        'start_time': start_time,
+        'max_players': max_players,
+        'rated': data.get('rated', True),
+        'description': data.get('description', ''),
+        'players': [{
+            'username': username,
+            'display_name': creator_display,
+            'rating': creator_stats.get('rating', 1200),
+            'joined_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }],
+        'rounds': [],
+        'standings': {},
+        'current_round': 0,
+        'started': False,
+        'finished': False,
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    save_tournaments()
+    
+    return jsonify({
+        'success': True,
+        'tournament_id': tid,
+        'message': f'Tournament "{name}" created!'
+    })
+
+@app.route('/api/tournaments/<tid>', methods=['GET'])
+def get_tournament(tid):
+    """Get tournament details"""
+    load_tournaments()
+    
+    if tid not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    t = tournaments[tid]
+    status = get_tournament_status(t)
+    standings = calculate_arena_standings(t) if t['format'] == 'arena' else []
+    
+    return jsonify({
+        'success': True,
+        'tournament': {
+            **t,
+            'status': status,
+            'standings': standings
+        }
+    })
+
+@app.route('/api/tournaments/<tid>/join', methods=['POST'])
+def join_tournament(tid):
+    """Join a tournament"""
+    username = get_current_user()
+    if not username:
+        return jsonify({'success': False, 'error': 'Must be logged in to join tournaments'})
+    
+    load_tournaments()
+    
+    if tid not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    t = tournaments[tid]
+    
+    # Check if already joined
+    for p in t['players']:
+        if p['username'] == username:
+            return jsonify({'success': False, 'error': 'Already joined this tournament'})
+    
+    # Check if full
+    if len(t['players']) >= t['max_players']:
+        return jsonify({'success': False, 'error': 'Tournament is full'})
+    
+    # Check if started
+    if t['started']:
+        return jsonify({'success': False, 'error': 'Tournament has already started'})
+    
+    # Add player
+    users = load_users()
+    display_name = users.get(username, {}).get('display_name', username)
+    stats = load_user_stats(username)
+    
+    t['players'].append({
+        'username': username,
+        'display_name': display_name,
+        'rating': stats.get('rating', 1200),
+        'joined_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    })
+    
+    save_tournaments()
+    
+    # Notify other players
+    socketio.emit('tournament_update', {
+        'tournament_id': tid,
+        'type': 'player_joined',
+        'player': {'username': username, 'display_name': display_name}
+    }, room=f'tournament_{tid}')
+    
+    return jsonify({'success': True, 'message': 'Joined tournament!'})
+
+@app.route('/api/tournaments/<tid>/leave', methods=['POST'])
+def leave_tournament(tid):
+    """Leave a tournament"""
+    username = get_current_user()
+    if not username:
+        return jsonify({'success': False, 'error': 'Must be logged in'})
+    
+    load_tournaments()
+    
+    if tid not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    t = tournaments[tid]
+    
+    if t['started']:
+        return jsonify({'success': False, 'error': 'Cannot leave a started tournament'})
+    
+    # Remove player
+    t['players'] = [p for p in t['players'] if p['username'] != username]
+    
+    # If creator left and no players, delete tournament
+    if len(t['players']) == 0:
+        del tournaments[tid]
+    elif t['creator'] == username and len(t['players']) > 0:
+        # Transfer ownership to first player
+        t['creator'] = t['players'][0]['username']
+    
+    save_tournaments()
+    
+    # Notify other players
+    socketio.emit('tournament_update', {
+        'tournament_id': tid,
+        'type': 'player_left',
+        'username': username
+    }, room=f'tournament_{tid}')
+    
+    return jsonify({'success': True, 'message': 'Left tournament'})
+
+@app.route('/api/tournaments/<tid>/start', methods=['POST'])
+def start_tournament(tid):
+    """Start a tournament (creator only)"""
+    username = get_current_user()
+    if not username:
+        return jsonify({'success': False, 'error': 'Must be logged in'})
+    
+    load_tournaments()
+    
+    if tid not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    t = tournaments[tid]
+    
+    if t['creator'] != username:
+        return jsonify({'success': False, 'error': 'Only the creator can start the tournament'})
+    
+    if len(t['players']) < 2:
+        return jsonify({'success': False, 'error': 'Need at least 2 players to start'})
+    
+    if t['started']:
+        return jsonify({'success': False, 'error': 'Tournament already started'})
+    
+    # Initialize standings
+    t['standings'] = {}
+    for p in t['players']:
+        t['standings'][p['username']] = {
+            'score': 0,
+            'games': 0,
+            'wins': 0,
+            'draws': 0,
+            'losses': 0
+        }
+    
+    # Generate first round pairings
+    if t['format'] == 'swiss':
+        t['current_round'] = 1
+        t['rounds'].append({
+            'round': 1,
+            'pairings': calculate_swiss_pairings(t),
+            'completed': False
+        })
+    
+    t['started'] = True
+    t['started_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    save_tournaments()
+    
+    # Notify all players
+    socketio.emit('tournament_update', {
+        'tournament_id': tid,
+        'type': 'tournament_started',
+        'tournament': t
+    }, room=f'tournament_{tid}')
+    
+    return jsonify({'success': True, 'message': 'Tournament started!'})
+
+@app.route('/api/tournaments/<tid>/pairings', methods=['GET'])
+def get_tournament_pairings(tid):
+    """Get current pairings for a tournament"""
+    load_tournaments()
+    
+    if tid not in tournaments:
+        return jsonify({'success': False, 'error': 'Tournament not found'})
+    
+    t = tournaments[tid]
+    current_round = t.get('current_round', 0)
+    
+    if current_round == 0 or not t['rounds']:
+        return jsonify({'success': True, 'pairings': [], 'round': 0})
+    
+    round_data = t['rounds'][current_round - 1]
+    return jsonify({
+        'success': True,
+        'round': current_round,
+        'pairings': round_data['pairings']
+    })
+
+# WebSocket events for tournaments
+@socketio.on('join_tournament_room')
+def handle_join_tournament_room(data):
+    """Join a tournament room for real-time updates"""
+    tid = data.get('tournament_id')
+    if tid:
+        join_room(f'tournament_{tid}')
+        emit('joined_tournament_room', {'tournament_id': tid})
+
+@socketio.on('leave_tournament_room')
+def handle_leave_tournament_room(data):
+    """Leave a tournament room"""
+    tid = data.get('tournament_id')
+    if tid:
+        leave_room(f'tournament_{tid}')
+
+@socketio.on('tournament_game_result')
+def handle_tournament_game_result(data):
+    """Handle a game result in a tournament"""
+    tid = data.get('tournament_id')
+    game_id = data.get('game_id')
+    result = data.get('result')  # 'white', 'black', 'draw'
+    white = data.get('white')
+    black = data.get('black')
+    
+    load_tournaments()
+    
+    if tid not in tournaments:
+        return
+    
+    t = tournaments[tid]
+    standings = t['standings']
+    
+    # Update standings
+    if white and white in standings:
+        standings[white]['games'] += 1
+        if result == 'white':
+            standings[white]['score'] += 1
+            standings[white]['wins'] += 1
+        elif result == 'draw':
+            standings[white]['score'] += 0.5
+            standings[white]['draws'] += 1
+        else:
+            standings[white]['losses'] += 1
+    
+    if black and black in standings:
+        standings[black]['games'] += 1
+        if result == 'black':
+            standings[black]['score'] += 1
+            standings[black]['wins'] += 1
+        elif result == 'draw':
+            standings[black]['score'] += 0.5
+            standings[black]['draws'] += 1
+        else:
+            standings[black]['losses'] += 1
+    
+    save_tournaments()
+    
+    # Broadcast update
+    socketio.emit('tournament_update', {
+        'tournament_id': tid,
+        'type': 'game_result',
+        'game_id': game_id,
+        'result': result,
+        'standings': calculate_arena_standings(t)
+    }, room=f'tournament_{tid}')
+
+# Load tournaments on startup
+load_tournaments()
+
 # ============== API ENDPOINTS ==============
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """Get player statistics - user-specific if logged in"""
-    username = session.get('user')
-    stats = load_stats(username)
-    return jsonify({'success': True, 'stats': stats, 'logged_in': username is not None})
+    """Get player statistics"""
+    stats = load_stats()
+    return jsonify({'success': True, 'stats': stats})
 
 @app.route('/api/stats/update', methods=['POST'])
 def update_stats():
     """Update player statistics after a game"""
     data = request.json
-    username = session.get('user')
-    stats = load_stats(username)
+    stats = load_stats()
     
     result = data.get('result', 'draw')
     accuracy = data.get('accuracy', 0)
@@ -2289,7 +1757,7 @@ def update_stats():
     stats['rating_history'] = stats['rating_history'][-100:]
     
     check_achievements(stats)
-    save_stats(stats, username)
+    save_stats(stats)
     return jsonify({'success': True, 'stats': stats, 'rating_change': rating_change})
 
 def check_achievements(stats):
@@ -2311,17 +1779,15 @@ def check_achievements(stats):
 
 @app.route('/api/games', methods=['GET'])
 def get_games():
-    """Get saved games for review - user-specific if logged in"""
-    username = session.get('user')
-    games = load_games(username)
+    """Get saved games for review"""
+    games = load_games()
     return jsonify({'success': True, 'games': games})
 
 @app.route('/api/games/save', methods=['POST'])
 def save_game():
-    """Save a completed game and update player style - user-specific if logged in"""
+    """Save a completed game and update player style"""
     data = request.json
-    username = session.get('user')
-    games = load_games(username)
+    games = load_games()
     
     game_data = {
         'id': len(games) + 1,
@@ -2335,11 +1801,11 @@ def save_game():
     }
     
     games.append(game_data)
-    save_games(games, username)
+    save_games(games)
     
     # Update player style for AI Clone learning
     try:
-        update_player_style_from_game(game_data, username)
+        update_player_style_from_game(game_data)
     except Exception as e:
         print(f"Error updating player style: {e}")
     
@@ -2347,9 +1813,8 @@ def save_game():
 
 @app.route('/api/games/<int:game_id>', methods=['GET'])
 def get_game(game_id):
-    """Get a specific game for review - user-specific if logged in"""
-    username = session.get('user')
-    games = load_games(username)
+    """Get a specific game for review"""
+    games = load_games()
     for game in games:
         if game.get('id') == game_id:
             return jsonify({'success': True, 'game': game})
@@ -2398,13 +1863,11 @@ def make_move():
         'success': True,
         'fen': board.fen(),
         'player_eval': player_eval,
-        'is_check': board.is_check(),
         'game_over': board.is_game_over(),
         'result': get_game_result(board) if board.is_game_over() else None
     }
     
-    # Get engine move - use Stockfish if available, otherwise cloud API
-    if get_engine_move and not board.is_game_over():
+    if get_engine_move and not board.is_game_over() and engine:
         try:
             engine_move = get_skill_adjusted_move(board, skill)
             if engine_move:
@@ -2412,7 +1875,6 @@ def make_move():
                 
                 result['engine_move'] = engine_move.uci()
                 result['fen'] = board.fen()
-                result['is_check'] = board.is_check()
                 result['game_over'] = board.is_game_over()
                 result['result'] = get_game_result(board) if board.is_game_over() else None
         except Exception as e:
@@ -2420,38 +1882,15 @@ def make_move():
     
     return jsonify(result)
 
-@app.route('/api/apply_move', methods=['POST'])
-def apply_move():
-    """Apply a move (from browser engine) and return new position"""
-    data = request.json
-    fen = data.get('fen')
-    move_uci = data.get('move')
-    
-    board = chess.Board(fen)
-    
-    try:
-        move = chess.Move.from_uci(move_uci)
-        if move not in board.legal_moves:
-            return jsonify({'success': False, 'error': 'Illegal move'})
-        
-        board.push(move)
-        
-        return jsonify({
-            'success': True,
-            'fen': board.fen(),
-            'is_check': board.is_check(),
-            'game_over': board.is_game_over(),
-            'result': get_game_result(board) if board.is_game_over() else None
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
 @app.route('/api/engine_move', methods=['POST'])
-def get_engine_move_route():
-    """Get engine's move for current position - uses Stockfish or cloud API"""
+def get_engine_move():
+    """Get engine's move for current position"""
     data = request.json
     fen = data.get('fen')
     skill = data.get('skill', 10)
+    
+    if not engine:
+        return jsonify({'success': False, 'error': 'Engine not available'})
     
     board = chess.Board(fen)
     
@@ -2459,26 +1898,25 @@ def get_engine_move_route():
         return jsonify({'success': False, 'error': 'Game is over'})
     
     try:
-        # Use skill-adjusted move selection (works with Stockfish or cloud API)
+        # Use skill-adjusted move selection
         move = get_skill_adjusted_move(board, skill)
         
         if not move:
             return jsonify({'success': False, 'error': 'No legal moves'})
         
-        # Get evaluation for display (if engine available)
+        # Get evaluation for display
         eval_cp = None
-        if engine:
-            with engine_lock:
-                try:
-                    info = engine.analyse(board, chess.engine.Limit(time=0.1))
-                    score = info.get('score')
-                    if score:
-                        if score.relative.is_mate():
-                            eval_cp = 10000 if score.relative.mate() > 0 else -10000
-                        else:
-                            eval_cp = score.relative.score()
-                except:
-                    pass
+        with engine_lock:
+            try:
+                info = engine.analyse(board, chess.engine.Limit(time=0.1))
+                score = info.get('score')
+                if score:
+                    if score.relative.is_mate():
+                        eval_cp = 10000 if score.relative.mate() > 0 else -10000
+                    else:
+                        eval_cp = score.relative.score()
+            except:
+                pass
         
         board.push(move)
         
@@ -2576,289 +2014,59 @@ def get_tips():
     return jsonify({'success': True, 'tips': tips})
 
 def analyze_move(board, move, skill=10):
-    """Analyze quality of a move - uses local engine or Lichess Cloud API"""
+    """Analyze quality of a move - fast version"""
+    if not engine:
+        return {'quality': 'unknown', 'cpl': 0}
     
-    # Try local engine first
-    if engine:
-        with engine_lock:
-            try:
-                # Fast analysis - just check if move matches engine's choice
-                best_move_info = engine.play(board, chess.engine.Limit(time=0.05))
-                best_move = best_move_info.move
+    with engine_lock:
+        try:
+            # Fast analysis - just check if move matches engine's choice
+            best_move_info = engine.play(board, chess.engine.Limit(time=0.05))
+            best_move = best_move_info.move
+            
+            info_before = engine.analyse(board, chess.engine.Limit(depth=8))
+            score_before = info_before.get('score')
+            
+            board.push(move)
+            info_after = engine.analyse(board, chess.engine.Limit(depth=8))
+            score_after = info_after.get('score')
+            board.pop()
+            
+            if score_before and score_after:
+                eval_before = get_cp_score(score_before, board.turn)
                 
-                info_before = engine.analyse(board, chess.engine.Limit(depth=8))
-                score_before = info_before.get('score')
-                
-                board.push(move)
-                info_after = engine.analyse(board, chess.engine.Limit(depth=8))
-                score_after = info_after.get('score')
+                board.push(best_move)
+                info_best = engine.analyse(board, chess.engine.Limit(depth=6))
+                score_best = info_best.get('score')
                 board.pop()
                 
-                if score_before and score_after:
-                    eval_before = get_cp_score(score_before, board.turn)
-                    
-                    board.push(best_move)
-                    info_best = engine.analyse(board, chess.engine.Limit(depth=6))
-                    score_best = info_best.get('score')
-                    board.pop()
-                    
-                    eval_best = get_cp_score(score_best, not board.turn) if score_best else eval_before
-                    eval_after = get_cp_score(score_after, not board.turn)
-                    
-                    cpl = max(0, eval_best - eval_after)
-                    
-                    if move == best_move:
-                        quality = 'best'
-                    elif cpl <= 10:
-                        quality = 'excellent'
-                    elif cpl <= 30:
-                        quality = 'good'
-                    elif cpl <= 100:
-                        quality = 'inaccuracy'
-                    elif cpl <= 300:
-                        quality = 'mistake'
-                    else:
-                        quality = 'blunder'
-                    
-                    return {
-                        'quality': quality,
-                        'cpl': cpl,
-                        'best_move': best_move.uci() if best_move != move else None
-                    }
-            except Exception as e:
-                print(f"Local engine analysis error: {e}")
-    
-    # Fallback: Use Lichess Cloud API for analysis
-    return analyze_move_cloud(board, move)
-
-def analyze_move_cloud(board, move):
-    """Analyze move quality using Lichess Cloud Evaluation API"""
-    try:
-        fen_before = board.fen()
-        
-        # Get evaluation before the move
-        url_before = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen_before)}&multiPv=3"
-        response_before = requests.get(url_before, timeout=5, headers={'Accept': 'application/json'})
-        
-        if response_before.status_code != 200:
-            return analyze_move_heuristic(board, move)
-        
-        data_before = response_before.json()
-        if 'pvs' not in data_before or len(data_before['pvs']) == 0:
-            return analyze_move_heuristic(board, move)
-        
-        # Get best move and its evaluation
-        best_pv = data_before['pvs'][0]
-        best_move_uci = best_pv['moves'].split()[0] if best_pv.get('moves') else None
-        eval_before = best_pv.get('cp', 0)
-        if 'mate' in best_pv:
-            eval_before = 10000 if best_pv['mate'] > 0 else -10000
-        
-        # Adjust for perspective (Lichess returns from white's perspective)
-        if not board.turn:  # Black to move
-            eval_before = -eval_before
-        
-        # Make the move and get evaluation after
-        board.push(move)
-        fen_after = board.fen()
-        
-        url_after = f"https://lichess.org/api/cloud-eval?fen={requests.utils.quote(fen_after)}&multiPv=1"
-        response_after = requests.get(url_after, timeout=5, headers={'Accept': 'application/json'})
-        board.pop()
-        
-        if response_after.status_code != 200:
-            # Can't get after eval, use heuristic based on best move match
-            if best_move_uci and move.uci() == best_move_uci:
-                return {'quality': 'best', 'cpl': 0, 'best_move': None}
-            elif best_move_uci:
-                return {'quality': 'good', 'cpl': 15, 'best_move': best_move_uci}
-            return analyze_move_heuristic(board, move)
-        
-        data_after = response_after.json()
-        if 'pvs' not in data_after or len(data_after['pvs']) == 0:
-            if best_move_uci and move.uci() == best_move_uci:
-                return {'quality': 'best', 'cpl': 0, 'best_move': None}
-            return analyze_move_heuristic(board, move)
-        
-        eval_after = data_after['pvs'][0].get('cp', 0)
-        if 'mate' in data_after['pvs'][0]:
-            eval_after = 10000 if data_after['pvs'][0]['mate'] > 0 else -10000
-        
-        # Adjust perspective (after move, it's opponent's turn)
-        if board.turn:  # Was white's move, now black to move
-            eval_after = -eval_after
-        
-        # Calculate centipawn loss
-        cpl = max(0, eval_before - eval_after)
-        
-        # Determine quality (thresholds aligned with chess_coach.py)
-        if best_move_uci and move.uci() == best_move_uci:
-            quality = 'best'
-        elif cpl <= 10:
-            quality = 'excellent'
-        elif cpl <= 30:
-            quality = 'good'
-        elif cpl <= 100:
-            quality = 'inaccuracy'
-        elif cpl <= 300:
-            quality = 'mistake'
-        else:
-            quality = 'blunder'
-        
-        return {
-            'quality': quality,
-            'cpl': cpl,
-            'best_move': best_move_uci if best_move_uci != move.uci() else None
-        }
-        
-    except Exception as e:
-        print(f"Cloud analysis error: {e}")
-        return analyze_move_heuristic(board, move)
-
-def analyze_move_heuristic(board, move):
-    """Smart heuristic-based move analysis when no API is available"""
-    # Basic move quality assessment without engine
-    quality = 'good'
-    cpl = 0
-    best_suggestion = None
-    
-    # Check if it's a capture
-    is_capture = board.is_capture(move)
-    captured_piece = board.piece_at(move.to_square)
-    moving_piece = board.piece_at(move.from_square)
-    
-    # Check if it gives check
-    board.push(move)
-    gives_check = board.is_check()
-    is_checkmate = board.is_checkmate()
-    board.pop()
-    
-    # Checkmate is always the best!
-    if is_checkmate:
-        return {'quality': 'best', 'cpl': 0, 'best_move': None}
-    
-    # Check for obvious blunders - hanging pieces
-    piece_values = {'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 0}
-    
-    # Check if we're moving a piece to an attacked square
-    board.push(move)
-    to_square = move.to_square
-    attackers = board.attackers(not board.turn, to_square)
-    defenders = board.attackers(board.turn, to_square)
-    board.pop()
-    
-    moving_value = piece_values.get(moving_piece.symbol().lower(), 0) if moving_piece else 0
-    
-    # Check if we're hanging the piece we just moved
-    if attackers and not defenders:
-        # We're hanging the piece!
-        if moving_value >= 300:  # Knight or better
-            quality = 'blunder'
-            cpl = moving_value
-        elif moving_value >= 100:  # Pawn
-            quality = 'mistake'
-            cpl = moving_value
-    elif attackers and defenders:
-        # Check if we're making a bad trade
-        attacker_values = [piece_values.get(board.piece_at(sq).symbol().lower(), 0) for sq in attackers if board.piece_at(sq)]
-        if attacker_values and min(attacker_values) < moving_value:
-            # Opponent can capture with a less valuable piece
-            loss = moving_value - min(attacker_values)
-            if loss >= 200:
-                quality = 'mistake'
-                cpl = loss
-            elif loss >= 100:
-                quality = 'inaccuracy'
-                cpl = loss
-    
-    # Check for captures - evaluate the trade
-    if is_capture and captured_piece:
-        captured_value = piece_values.get(captured_piece.symbol().lower(), 0)
-        
-        if captured_value > moving_value + 50:
-            quality = 'excellent'  # Winning significant material
-            cpl = 0
-        elif captured_value >= moving_value - 50:
-            if quality == 'good':
-                quality = 'good'  # Even trade
-            cpl = 0
-        else:
-            # Losing trade
-            loss = moving_value - captured_value
-            if loss >= 200 and quality in ['good', 'excellent']:
-                quality = 'inaccuracy'
-                cpl = loss
-    
-    # Giving check is often good
-    if gives_check:
-        if quality in ['good', 'excellent']:
-            quality = 'excellent'
-    
-    # Development bonus in opening (first 10 moves)
-    if board.fullmove_number <= 10:
-        # Developing pieces to good squares
-        to_file = move.to_square % 8
-        to_rank = move.to_square // 8
-        from_rank = move.from_square // 8
-        
-        # Center control
-        is_center = to_file in [3, 4] and to_rank in [3, 4]
-        is_extended_center = to_file in [2, 3, 4, 5] and to_rank in [2, 3, 4, 5]
-        
-        if moving_piece:
-            piece_type = moving_piece.symbol().lower()
-            
-            # Knights and bishops going to center
-            if piece_type in ['n', 'b'] and is_extended_center:
-                if quality == 'good':
+                eval_best = get_cp_score(score_best, not board.turn) if score_best else eval_before
+                eval_after = get_cp_score(score_after, not board.turn)
+                
+                cpl = max(0, eval_best - eval_after)
+                
+                if move == best_move:
+                    quality = 'best'
+                elif cpl <= 10:
                     quality = 'excellent'
-            
-            # Pawn to center
-            if piece_type == 'p' and is_center:
-                if quality == 'good':
-                    quality = 'excellent'
-            
-            # Castling is usually good
-            if piece_type == 'k' and abs(move.to_square - move.from_square) == 2:
-                quality = 'excellent'
-            
-            # Moving same piece twice early is often inaccurate
-            # (Would need move history to check this properly)
+                elif cpl <= 25:
+                    quality = 'good'
+                elif cpl <= 50:
+                    quality = 'inaccuracy'
+                elif cpl <= 100:
+                    quality = 'mistake'
+                else:
+                    quality = 'blunder'
+                
+                return {
+                    'quality': quality,
+                    'cpl': cpl,
+                    'best_move': best_move.uci() if best_move != move else None
+                }
+        except Exception as e:
+            print(f"Analysis error: {e}")
     
-    # Look for a simple "best move" suggestion
-    legal_moves = list(board.legal_moves)
-    
-    # Check for checkmate opportunity we might have missed
-    for m in legal_moves:
-        board.push(m)
-        if board.is_checkmate():
-            if m != move:
-                best_suggestion = m.uci()
-                if quality in ['good', 'excellent']:
-                    quality = 'mistake'  # Missed mate!
-                    cpl = 500
-        board.pop()
-    
-    # Check for queen/rook capture we might have missed
-    if not best_suggestion:
-        for m in legal_moves:
-            if board.is_capture(m):
-                target = board.piece_at(m.to_square)
-                if target and target.symbol().lower() in ['q', 'r']:
-                    # Check if it's safe
-                    board.push(m)
-                    attackers = board.attackers(board.turn, m.to_square)
-                    board.pop()
-                    if not attackers:  # Free capture
-                        if m != move:
-                            best_suggestion = m.uci()
-                            if quality in ['good', 'excellent']:
-                                quality = 'inaccuracy'
-                                cpl = 100
-                        else:
-                            quality = 'excellent'
-    
-    return {'quality': quality, 'cpl': cpl, 'best_move': best_suggestion}
+    return {'quality': 'unknown', 'cpl': 0}
 
 def get_cp_score(score, is_white_perspective):
     """Get centipawn score from perspective"""

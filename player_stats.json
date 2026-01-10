@@ -1,0 +1,22 @@
+{
+  "rating": 1185,
+  "games_played": 1,
+  "wins": 0,
+  "losses": 1,
+  "draws": 0,
+  "total_accuracy": 0,
+  "best_accuracy": 0,
+  "current_streak": 0,
+  "best_streak": 0,
+  "rating_history": [
+    {
+      "date": "2026-01-08",
+      "rating": 1200
+    },
+    {
+      "date": "2026-01-08 16:20",
+      "rating": 1185
+    }
+  ],
+  "achievements": []
+}
