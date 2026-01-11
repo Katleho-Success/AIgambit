@@ -24,5 +24,8 @@ EXPOSE 8080
 # Set environment variable for Stockfish path
 ENV STOCKFISH_PATH=/usr/games/stockfish
 
-# Run the application using Python to handle PORT
-CMD python -c "import os; port = os.environ.get('PORT', '8080'); import subprocess; subprocess.run(['gunicorn', '--worker-class', 'eventlet', '-w', '1', '--bind', f'0.0.0.0:{port}', 'app:app'])"
+# Copy entry point
+COPY run.py .
+
+# Run the application
+CMD ["python", "run.py"]
