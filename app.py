@@ -19,6 +19,11 @@ import time
 import math
 import uuid
 import hashlib
+import platform
+import subprocess
+import urllib.request
+import zipfile
+import tarfile
 from datetime import datetime
 
 app = Flask(__name__)
@@ -706,10 +711,65 @@ def get_stockfish_path():
             return path
     return None
 
+def download_stockfish_for_linux():
+    """Download Stockfish binary for Linux (cloud hosting)"""
+    print("🔽 Downloading Stockfish for Linux...")
+    
+    # Stockfish download URL (Ubuntu/Linux x64)
+    stockfish_url = "https://github.com/official-stockfish/Stockfish/releases/download/sf_16/stockfish-ubuntu-x86-64-avx2.tar"
+    stockfish_dir = os.path.join(os.path.dirname(__file__), 'stockfish_linux')
+    stockfish_path = os.path.join(stockfish_dir, 'stockfish', 'stockfish-ubuntu-x86-64-avx2')
+    
+    # If already downloaded, return path
+    if os.path.exists(stockfish_path):
+        print(f"✓ Stockfish already downloaded at: {stockfish_path}")
+        return stockfish_path
+    
+    try:
+        # Create directory
+        os.makedirs(stockfish_dir, exist_ok=True)
+        
+        # Download
+        tar_path = os.path.join(stockfish_dir, 'stockfish.tar')
+        print(f"   Downloading from: {stockfish_url}")
+        urllib.request.urlretrieve(stockfish_url, tar_path)
+        
+        # Extract
+        print(f"   Extracting...")
+        with tarfile.open(tar_path, 'r') as tar:
+            tar.extractall(stockfish_dir)
+        
+        # Make executable
+        os.chmod(stockfish_path, 0o755)
+        
+        # Clean up tar
+        os.remove(tar_path)
+        
+        print(f"✓ Stockfish downloaded successfully!")
+        return stockfish_path
+        
+    except Exception as e:
+        print(f"✗ Failed to download Stockfish: {e}")
+        return None
+
+def get_stockfish_for_platform():
+    """Get the correct Stockfish binary for the current platform"""
+    system = platform.system().lower()
+    
+    if system == 'linux':
+        # Running on cloud hosting (Linux)
+        return download_stockfish_for_linux()
+    else:
+        # Running on Windows/Mac (local development)
+        return get_stockfish_path()
+
 def init_engine():
     """Initialize Stockfish engine"""
     global engine
-    stockfish_path = get_stockfish_path()
+    
+    # Get platform-appropriate Stockfish
+    stockfish_path = get_stockfish_for_platform()
+    
     if stockfish_path:
         try:
             engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
@@ -2355,11 +2415,17 @@ if __name__ == '__main__':
     
     init_engine()
     
+    # Get port from environment (for cloud hosting) or use 5000 (local)
+    port = int(os.environ.get('PORT', 5000))
+    
     print("\n🌐 Starting server with WebSocket support...")
-    print("   Open in browser: http://localhost:5000")
+    print(f"   Server running on port: {port}")
+    print(f"   Open in browser: http://localhost:{port}")
     print("   Press Ctrl+C to stop\n")
     
-    import webbrowser
-    threading.Timer(1.5, lambda: webbrowser.open('http://localhost:5000')).start()
+    # Only open browser on local development
+    if port == 5000:
+        import webbrowser
+        threading.Timer(1.5, lambda: webbrowser.open('http://localhost:5000')).start()
     
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
