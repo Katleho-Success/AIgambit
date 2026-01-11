@@ -23,7 +23,10 @@ EXPOSE 8080
 
 # Set environment variable for Stockfish path
 ENV STOCKFISH_PATH=/usr/games/stockfish
-ENV PORT=8080
 
-# Run the application - use shell form to expand $PORT
-CMD gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:${PORT:-8080} app:app
+# Copy and make startup script executable
+COPY start.sh .
+RUN chmod +x start.sh
+
+# Run the application
+CMD ["./start.sh"]
