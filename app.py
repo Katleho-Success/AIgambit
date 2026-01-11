@@ -715,42 +715,73 @@ def download_stockfish_for_linux():
     """Download Stockfish binary for Linux (cloud hosting)"""
     print("🔽 Downloading Stockfish for Linux...")
     
-    # Stockfish download URL (Ubuntu/Linux x64)
-    stockfish_url = "https://github.com/official-stockfish/Stockfish/releases/download/sf_16/stockfish-ubuntu-x86-64-avx2.tar"
     stockfish_dir = os.path.join(os.path.dirname(__file__), 'stockfish_linux')
-    stockfish_path = os.path.join(stockfish_dir, 'stockfish', 'stockfish-ubuntu-x86-64-avx2')
+    os.makedirs(stockfish_dir, exist_ok=True)
     
-    # If already downloaded, return path
-    if os.path.exists(stockfish_path):
-        print(f"✓ Stockfish already downloaded at: {stockfish_path}")
-        return stockfish_path
+    # Try multiple Stockfish sources
+    stockfish_sources = [
+        # Stockfish 16 - Ubuntu AVX2
+        {
+            'url': 'https://github.com/official-stockfish/Stockfish/releases/download/sf_16/stockfish-ubuntu-x86-64-avx2.tar',
+            'type': 'tar',
+            'binary_name': 'stockfish-ubuntu-x86-64-avx2'
+        },
+        # Stockfish 16 - Ubuntu SSE41 (fallback for older CPUs)
+        {
+            'url': 'https://github.com/official-stockfish/Stockfish/releases/download/sf_16/stockfish-ubuntu-x86-64-sse41-popcnt.tar',
+            'type': 'tar',
+            'binary_name': 'stockfish-ubuntu-x86-64-sse41-popcnt'
+        },
+        # Stockfish from lichess (pre-built)
+        {
+            'url': 'https://fishnet.lichess.ovh/download/stockfish/ubuntu-20.04-x86-64',
+            'type': 'binary',
+            'binary_name': 'stockfish'
+        }
+    ]
     
-    try:
-        # Create directory
-        os.makedirs(stockfish_dir, exist_ok=True)
-        
-        # Download
-        tar_path = os.path.join(stockfish_dir, 'stockfish.tar')
-        print(f"   Downloading from: {stockfish_url}")
-        urllib.request.urlretrieve(stockfish_url, tar_path)
-        
-        # Extract
-        print(f"   Extracting...")
-        with tarfile.open(tar_path, 'r') as tar:
-            tar.extractall(stockfish_dir)
-        
-        # Make executable
-        os.chmod(stockfish_path, 0o755)
-        
-        # Clean up tar
-        os.remove(tar_path)
-        
-        print(f"✓ Stockfish downloaded successfully!")
-        return stockfish_path
-        
-    except Exception as e:
-        print(f"✗ Failed to download Stockfish: {e}")
-        return None
+    for source in stockfish_sources:
+        try:
+            print(f"   Trying: {source['url']}")
+            
+            if source['type'] == 'tar':
+                # Download tar file
+                tar_path = os.path.join(stockfish_dir, 'stockfish.tar')
+                urllib.request.urlretrieve(source['url'], tar_path)
+                
+                # Extract
+                with tarfile.open(tar_path, 'r') as tar:
+                    tar.extractall(stockfish_dir)
+                
+                # Find the binary (it might be in a subfolder)
+                for root, dirs, files in os.walk(stockfish_dir):
+                    for f in files:
+                        if source['binary_name'] in f and not f.endswith('.tar'):
+                            binary_path = os.path.join(root, f)
+                            os.chmod(binary_path, 0o755)
+                            print(f"✓ Stockfish downloaded: {binary_path}")
+                            # Clean up
+                            if os.path.exists(tar_path):
+                                os.remove(tar_path)
+                            return binary_path
+                            
+            else:  # direct binary download
+                binary_path = os.path.join(stockfish_dir, source['binary_name'])
+                urllib.request.urlretrieve(source['url'], binary_path)
+                os.chmod(binary_path, 0o755)
+                
+                # Test if it's executable
+                result = subprocess.run([binary_path, '--help'], capture_output=True, timeout=5)
+                if result.returncode == 0 or b'Stockfish' in result.stdout or b'Stockfish' in result.stderr:
+                    print(f"✓ Stockfish downloaded: {binary_path}")
+                    return binary_path
+                    
+        except Exception as e:
+            print(f"   Failed: {e}")
+            continue
+    
+    print("✗ All Stockfish sources failed")
+    return None
 
 def get_stockfish_for_platform():
     """Get the correct Stockfish binary for the current platform"""
@@ -1945,12 +1976,19 @@ def make_move():
 @app.route('/api/engine_move', methods=['POST'])
 def get_engine_move():
     """Get engine's move for current position"""
+    global engine
+    
     data = request.json
     fen = data.get('fen')
     skill = data.get('skill', 10)
     
+    # Try to initialize engine if not available
     if not engine:
-        return jsonify({'success': False, 'error': 'Engine not available'})
+        print("Engine not initialized, attempting to initialize...")
+        init_engine()
+    
+    if not engine:
+        return jsonify({'success': False, 'error': 'Chess engine not available. Please try again in a moment.'})
     
     board = chess.Board(fen)
     
