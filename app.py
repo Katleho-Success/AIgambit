@@ -693,13 +693,24 @@ def get_skill_adjusted_move(board, skill):
         return random.choice(legal_moves)
 
 def get_stockfish_path():
-    """Find Stockfish engine"""
+    """Find Stockfish engine - tries multiple locations"""
     if getattr(sys, 'frozen', False):
         app_dir = os.path.dirname(sys.executable)
     else:
         app_dir = os.path.dirname(os.path.abspath(__file__))
     
+    # Check environment variable first (set by Render)
+    env_path = os.environ.get('STOCKFISH_PATH')
+    if env_path and os.path.exists(env_path):
+        return env_path
+    
     possible_paths = [
+        # Linux paths (Render/cloud)
+        "/usr/games/stockfish",
+        "/usr/bin/stockfish",
+        "/usr/local/bin/stockfish",
+        os.path.join(app_dir, "stockfish_linux", "stockfish"),
+        # Windows paths (local dev)
         os.path.join(app_dir, "stockfish.exe"),
         os.path.join(app_dir, "..", "dist", "stockfish.exe"),
         r"C:\Stockfish\stockfish\stockfish-windows-x86-64.exe",
@@ -708,12 +719,14 @@ def get_stockfish_path():
     
     for path in possible_paths:
         if os.path.exists(path):
+            print(f"   Found Stockfish at: {path}")
             return path
+    
     return None
 
 def download_stockfish_for_linux():
     """Download Stockfish binary for Linux (cloud hosting)"""
-    print("🔽 Downloading Stockfish for Linux...")
+    print("🔽 Attempting to download Stockfish for Linux...")
     
     stockfish_dir = os.path.join(os.path.dirname(__file__), 'stockfish_linux')
     os.makedirs(stockfish_dir, exist_ok=True)
@@ -732,12 +745,12 @@ def download_stockfish_for_linux():
             'type': 'tar',
             'binary_name': 'stockfish-ubuntu-x86-64-sse41-popcnt'
         },
-        # Stockfish from lichess (pre-built)
+        # Stockfish 15.1 (more compatible, no AVX2 requirement)
         {
-            'url': 'https://fishnet.lichess.ovh/download/stockfish/ubuntu-20.04-x86-64',
-            'type': 'binary',
+            'url': 'https://github.com/official-stockfish/Stockfish/releases/download/sf_15.1/stockfish_15.1_linux_x64.zip',
+            'type': 'zip',
             'binary_name': 'stockfish'
-        }
+        },
     ]
     
     for source in stockfish_sources:
@@ -764,6 +777,26 @@ def download_stockfish_for_linux():
                             if os.path.exists(tar_path):
                                 os.remove(tar_path)
                             return binary_path
+            
+            elif source['type'] == 'zip':
+                # Download zip file
+                zip_path = os.path.join(stockfish_dir, 'stockfish.zip')
+                urllib.request.urlretrieve(source['url'], zip_path)
+                
+                # Extract
+                with zipfile.ZipFile(zip_path, 'r') as z:
+                    z.extractall(stockfish_dir)
+                
+                # Find the binary
+                for root, dirs, files in os.walk(stockfish_dir):
+                    for f in files:
+                        if 'stockfish' in f.lower() and not f.endswith(('.zip', '.txt', '.md')):
+                            binary_path = os.path.join(root, f)
+                            os.chmod(binary_path, 0o755)
+                            print(f"✓ Stockfish downloaded: {binary_path}")
+                            if os.path.exists(zip_path):
+                                os.remove(zip_path)
+                            return binary_path
                             
             else:  # direct binary download
                 binary_path = os.path.join(stockfish_dir, source['binary_name'])
@@ -780,25 +813,31 @@ def download_stockfish_for_linux():
             print(f"   Failed: {e}")
             continue
     
-    print("✗ All Stockfish sources failed")
+    print("✗ All Stockfish download sources failed")
     return None
 
 def get_stockfish_for_platform():
     """Get the correct Stockfish binary for the current platform"""
     system = platform.system().lower()
     
+    # First try to find existing stockfish
+    existing_path = get_stockfish_path()
+    if existing_path:
+        return existing_path
+    
+    # If on Linux and not found, try to download
     if system == 'linux':
-        # Running on cloud hosting (Linux)
         return download_stockfish_for_linux()
-    else:
-        # Running on Windows/Mac (local development)
-        return get_stockfish_path()
+    
+    return None
 
 def init_engine():
-    """Initialize Stockfish engine"""
+    """Initialize Stockfish engine with multiple fallback methods"""
     global engine
     
-    # Get platform-appropriate Stockfish
+    print("🔧 Initializing chess engine...")
+    
+    # Method 1: Try to find/download Stockfish binary
     stockfish_path = get_stockfish_for_platform()
     
     if stockfish_path:
@@ -807,9 +846,40 @@ def init_engine():
             print(f"✓ Stockfish loaded from: {stockfish_path}")
             return True
         except Exception as e:
-            print(f"✗ Could not load Stockfish: {e}")
-    else:
-        print("✗ Stockfish not found")
+            print(f"   Method 1 failed: {e}")
+    
+    # Method 2: Try using stockfish Python package
+    try:
+        from stockfish import Stockfish
+        # The stockfish package finds/downloads the binary automatically
+        sf = Stockfish()
+        sf_path = sf.get_stockfish_path() if hasattr(sf, 'get_stockfish_path') else None
+        if sf_path:
+            engine = chess.engine.SimpleEngine.popen_uci(sf_path)
+            print(f"✓ Stockfish loaded via stockfish package")
+            return True
+    except Exception as e:
+        print(f"   Method 2 failed: {e}")
+    
+    # Method 3: Try common system paths
+    system_paths = [
+        "/usr/games/stockfish",
+        "/usr/bin/stockfish", 
+        "/usr/local/bin/stockfish",
+        "/opt/stockfish/stockfish",
+    ]
+    
+    for path in system_paths:
+        if os.path.exists(path):
+            try:
+                engine = chess.engine.SimpleEngine.popen_uci(path)
+                print(f"✓ Stockfish loaded from system: {path}")
+                return True
+            except Exception as e:
+                print(f"   System path {path} failed: {e}")
+    
+    print("✗ All Stockfish initialization methods failed")
+    print("   AI games will not be available")
     return False
 
 # ============== ONLINE MULTIPLAYER (SOCKET.IO) ==============
