@@ -705,10 +705,13 @@ def get_stockfish_path():
         return env_path
     
     possible_paths = [
-        # Linux paths (Render/cloud)
+        # Nixpacks/Railway paths (highest priority)
+        "/nix/store/stockfish",
+        # Linux paths (cloud hosting)
         "/usr/games/stockfish",
         "/usr/bin/stockfish",
         "/usr/local/bin/stockfish",
+        "/app/stockfish",
         os.path.join(app_dir, "stockfish_linux", "stockfish"),
         # Windows paths (local dev)
         os.path.join(app_dir, "stockfish.exe"),
@@ -716,6 +719,16 @@ def get_stockfish_path():
         r"C:\Stockfish\stockfish\stockfish-windows-x86-64.exe",
         r"C:\Stockfish\stockfish.exe",
     ]
+    
+    # Also check if stockfish is in PATH (works for nixpacks)
+    try:
+        result = subprocess.run(['which', 'stockfish'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            path = result.stdout.strip()
+            print(f"   Found Stockfish in PATH: {path}")
+            return path
+    except:
+        pass
     
     for path in possible_paths:
         if os.path.exists(path):
